@@ -35,6 +35,29 @@ let mut encoder = Encoder::new_file("some.jpeg", 100)?;
 encoder.encode(&data, 2, 2, ColorType::Rgb)?;
 ```
 
+## WebAssembly package
+
+This repository ships WebAssembly bindings located in the `pkg/` directory.
+Producing an optimized build requires both [`wasm-pack`](https://rustwasm.github.io/wasm-pack/installer/) and [`wasm-opt`](https://github.com/WebAssembly/binaryen) from the Binaryen toolkit.
+
+Install the prerequisites with your system package manager, for example:
+
+```bash
+cargo install wasm-pack
+# Debian/Ubuntu
+sudo apt-get install binaryen
+# macOS
+brew install binaryen
+```
+
+After installing the tools you can generate the bindings with:
+
+```bash
+npm run build
+```
+
+The npm script runs `wasm-pack build` followed by `wasm-opt -Oz pkg/jpeg_encoder_bg.wasm` to emit a size-optimized module in `pkg/`.
+
 ## Crate features
 - `std` (default): Enables functionality dependent on the std lib
 - `simd`: Enables SIMD optimizations (implies `std` and only AVX2 as for now)
