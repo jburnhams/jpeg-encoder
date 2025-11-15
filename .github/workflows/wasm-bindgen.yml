@@ -1,0 +1,27 @@
+name: wasm-bindgen
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  bindings:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+      - name: Build wasm target
+        run: cargo build --release --target wasm32-unknown-unknown --no-default-features --features wasm-bindgen
+      - name: Generate bindings
+        run: wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder.wasm --out-dir pkg --target bundler --typescript
+      - name: Verify bindings are committed
+        run: git diff --exit-code pkg
