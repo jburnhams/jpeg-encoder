@@ -1607,10 +1607,10 @@ impl<W: JfifWrite, OP: Operations> StripEncoderInner<W, OP> {
             }
             ColorType::Cmyk => {
                 for pixel in row_data.chunks_exact(4) {
-                    self.row_buffers[0].push(pixel[0]);
-                    self.row_buffers[1].push(pixel[1]);
-                    self.row_buffers[2].push(pixel[2]);
-                    self.row_buffers[3].push(pixel[3]);
+                    self.row_buffers[0].push(255 - pixel[0]);
+                    self.row_buffers[1].push(255 - pixel[1]);
+                    self.row_buffers[2].push(255 - pixel[2]);
+                    self.row_buffers[3].push(255 - pixel[3]);
                 }
             }
             ColorType::CmykAsYcck => {
