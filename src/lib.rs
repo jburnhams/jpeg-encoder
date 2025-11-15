@@ -42,21 +42,25 @@ mod marker;
 mod quantization;
 mod writer;
 
-pub use encoder::{ColorType, Encoder, JpegColorType, SamplingFactor};
+pub use encoder::{ColorType, ComponentSpec, Encoder, JpegColorType, SamplingFactor, StripEncoder};
 pub use error::EncodingError;
 pub use image_buffer::{cmyk_to_ycck, rgb_to_ycbcr, ImageBuffer};
 pub use quantization::QuantizationTableType;
 pub use writer::{Density, JfifWrite};
 
+#[cfg(all(
+    feature = "benchmark",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub use avx2::fdct_avx2;
 #[cfg(feature = "benchmark")]
 pub use fdct::fdct;
-#[cfg(all(feature = "benchmark", feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-pub use avx2::fdct_avx2;
 
 #[cfg(test)]
 mod tests {
     use crate::image_buffer::rgb_to_ycbcr;
-    use crate::{ColorType, Encoder, QuantizationTableType, SamplingFactor};
+    use crate::{ColorType, Encoder, QuantizationTableType, SamplingFactor, StripEncoder};
     use jpeg_decoder::{Decoder, ImageInfo, PixelFormat};
 
     use alloc::boxed::Box;
@@ -207,6 +211,66 @@ mod tests {
             .unwrap();
 
         check_result(data, width, height, &mut result, PixelFormat::RGB24);
+    }
+
+    #[test]
+    fn test_rgb_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_rgb();
+
+        let mut expected = Vec::new();
+        Encoder::new(&mut expected, 80)
+            .encode(&data, width, height, ColorType::Rgb)
+            .unwrap();
+
+        let streaming_encoder = Encoder::new(Vec::new(), 80);
+        let mut strip_encoder = streaming_encoder
+            .into_strip_encoder(width, height, ColorType::Rgb)
+            .unwrap();
+
+        let header = strip_encoder.header_bytes().unwrap();
+
+        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
+        let strip_height = 5;
+
+        for chunk in data.chunks(row_stride * strip_height) {
+            strip_encoder.encode_strip(chunk).unwrap();
+        }
+
+        let result = strip_encoder.finish().unwrap();
+
+        assert_eq!(result, expected);
+        assert_eq!(&result[..header.len()], header.as_slice());
+        let footer = StripEncoder::<Vec<u8>>::footer_bytes();
+        assert_eq!(&result[result.len() - footer.len()..], &footer);
+    }
+
+    #[test]
+    fn test_gray_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_gray();
+
+        let mut expected = Vec::new();
+        Encoder::new(&mut expected, 90)
+            .encode(&data, width, height, ColorType::Luma)
+            .unwrap();
+
+        let streaming_encoder = Encoder::new(Vec::new(), 90);
+        let mut strip_encoder = streaming_encoder
+            .into_strip_encoder(width, height, ColorType::Luma)
+            .unwrap();
+
+        let header = strip_encoder.header_bytes().unwrap();
+        let row_stride = usize::from(width) * ColorType::Luma.get_bytes_per_pixel();
+
+        for chunk in data.chunks(row_stride * 7) {
+            strip_encoder.encode_strip(chunk).unwrap();
+        }
+
+        let result = strip_encoder.finish().unwrap();
+
+        assert_eq!(result, expected);
+        assert_eq!(&result[..header.len()], header.as_slice());
+        let footer = StripEncoder::<Vec<u8>>::footer_bytes();
+        assert_eq!(&result[result.len() - footer.len()..], &footer);
     }
 
     #[test]
