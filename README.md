@@ -35,6 +35,37 @@ let mut encoder = Encoder::new_file("some.jpeg", 100)?;
 encoder.encode(&data, 2, 2, ColorType::Rgb)?;
 ```
 
+## WebAssembly package
+
+This repository ships WebAssembly bindings located in the `pkg/` directory.
+Producing an optimized build requires:
+
+- The Rust toolchain with the `wasm32-unknown-unknown` target installed
+- [`wasm-bindgen-cli`](https://github.com/rustwasm/wasm-bindgen)
+- [`wasm-opt`](https://github.com/WebAssembly/binaryen) from the Binaryen toolkit
+
+Install the prerequisites with your system package manager, for example:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli
+# Debian/Ubuntu
+sudo apt-get install binaryen
+# macOS
+brew install binaryen
+```
+
+After installing the tools you can generate the bindings with:
+
+```bash
+cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown
+wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm \
+  --out-dir pkg --target bundler --typescript --out-name jpeg_encoder
+wasm-opt -Oz pkg/jpeg_encoder_bg.wasm -o pkg/jpeg_encoder_bg.wasm
+```
+
+These are the same steps executed by the `wasm-bindgen` GitHub Actions workflow.
+
 ## Crate features
 - `std` (default): Enables functionality dependent on the std lib
 - `simd`: Enables SIMD optimizations (implies `std` and only AVX2 as for now)
