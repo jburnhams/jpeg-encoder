@@ -18,7 +18,7 @@ crate-type = ["rlib", "cdylib"]
 default = ["std"]
 simd = ["std"]
 std = []
-wasm-bindgen = ["dep:wasm-bindgen", "dep:js-sys"]
+wasm-bindgen = ["dep:wasm-bindgen", "dep:js-sys", "dep:wee_alloc"]
 
 # DO NOT USE THIS IN PRODUCTION. Expose several internal functions for benchmark purposes.
 benchmark = []
@@ -26,6 +26,7 @@ benchmark = []
 [dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
+wee_alloc = { version = "0.4", optional = true }
 
 [dev-dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }

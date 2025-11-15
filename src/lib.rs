@@ -31,6 +31,13 @@ extern crate std;
 extern crate alloc;
 extern crate core;
 
+#[cfg(all(feature = "wasm-bindgen", not(feature = "std")))]
+extern crate wee_alloc;
+
+#[cfg(all(feature = "wasm-bindgen", not(feature = "std")))]
+#[global_allocator]
+static GLOBAL: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 mod avx2;
 mod encoder;
