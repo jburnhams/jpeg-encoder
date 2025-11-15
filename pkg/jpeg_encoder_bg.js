@@ -39,12 +39,6 @@ function getArrayU8FromWasm0(ptr, len) {
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
-function takeFromExternrefTable0(idx) {
-    const value = wasm.__wbindgen_externrefs.get(idx);
-    wasm.__externref_table_dealloc(idx);
-    return value;
-}
-
 let WASM_VECTOR_LEN = 0;
 
 function passArray8ToWasm0(arg, malloc) {
@@ -52,6 +46,12 @@ function passArray8ToWasm0(arg, malloc) {
     getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
 }
 /**
  * @enum {0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}
@@ -86,19 +86,11 @@ export class StreamingJpegEncoder {
         wasm.__wbg_streamingjpegencoder_free(ptr, 0);
     }
     /**
-     * @param {number} width
-     * @param {number} height
-     * @param {WasmColorType} color_type
-     * @param {number} quality
+     * @returns {Uint8Array}
      */
-    constructor(width, height, color_type, quality) {
-        const ret = wasm.streamingjpegencoder_new(width, height, color_type, quality);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        this.__wbg_ptr = ret[0] >>> 0;
-        StreamingJpegEncoderFinalization.register(this, this.__wbg_ptr, this);
-        return this;
+    take_output() {
+        const ret = wasm.streamingjpegencoder_take_output(this.__wbg_ptr);
+        return ret;
     }
     /**
      * @param {Uint8Array} data
@@ -116,18 +108,8 @@ export class StreamingJpegEncoder {
     /**
      * @returns {Uint8Array}
      */
-    finish() {
-        const ret = wasm.streamingjpegencoder_finish(this.__wbg_ptr);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    take_output() {
-        const ret = wasm.streamingjpegencoder_take_output(this.__wbg_ptr);
+    static footer_bytes() {
+        const ret = wasm.streamingjpegencoder_footer_bytes();
         return ret;
     }
     /**
@@ -145,11 +127,29 @@ export class StreamingJpegEncoder {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @param {number} width
+     * @param {number} height
+     * @param {WasmColorType} color_type
+     * @param {number} quality
+     */
+    constructor(width, height, color_type, quality) {
+        const ret = wasm.streamingjpegencoder_new(width, height, color_type, quality);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0] >>> 0;
+        StreamingJpegEncoderFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
      * @returns {Uint8Array}
      */
-    static footer_bytes() {
-        const ret = wasm.streamingjpegencoder_footer_bytes();
-        return ret;
+    finish() {
+        const ret = wasm.streamingjpegencoder_finish(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
     }
 }
 if (Symbol.dispose) StreamingJpegEncoder.prototype[Symbol.dispose] = StreamingJpegEncoder.prototype.free;

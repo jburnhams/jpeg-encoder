@@ -14,10 +14,10 @@ export enum WasmColorType {
 export class StreamingJpegEncoder {
   free(): void;
   [Symbol.dispose](): void;
-  constructor(width: number, height: number, color_type: WasmColorType, quality: number);
-  encode_strip(data: Uint8Array): Uint8Array;
-  finish(): Uint8Array;
   take_output(): Uint8Array;
-  static header_bytes(width: number, height: number, color_type: WasmColorType, quality: number): Uint8Array;
+  encode_strip(data: Uint8Array): Uint8Array;
   static footer_bytes(): Uint8Array;
+  static header_bytes(width: number, height: number, color_type: WasmColorType, quality: number): Uint8Array;
+  constructor(width: number, height: number, color_type: WasmColorType, quality: number);
+  finish(): Uint8Array;
 }
