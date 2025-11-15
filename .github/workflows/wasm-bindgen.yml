@@ -20,8 +20,8 @@ jobs:
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli
       - name: Build wasm target
-        run: cargo build --release --target wasm32-unknown-unknown --no-default-features --features wasm-bindgen
+        run: cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown
       - name: Generate bindings
-        run: wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder.wasm --out-dir pkg --target bundler --typescript
+        run: wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir pkg --target bundler --typescript --out-name jpeg_encoder
       - name: Verify bindings are committed
         run: git diff --exit-code pkg

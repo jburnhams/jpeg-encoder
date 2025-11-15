@@ -11,8 +11,9 @@ readme = "README.md"
 repository = "https://github.com/vstroebel/jpeg-encoder"
 rust-version = "1.61"
 
-[lib]
-crate-type = ["rlib", "cdylib"]
+[workspace]
+members = [".", "wasm-bindings"]
+resolver = "2"
 
 [features]
 default = ["std"]
