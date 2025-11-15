@@ -42,26 +42,34 @@ mod marker;
 mod quantization;
 mod writer;
 
-pub use encoder::{ColorType, Encoder, JpegColorType, SamplingFactor};
+pub use encoder::{ColorType, ComponentSpec, Encoder, JpegColorType, SamplingFactor, StripEncoder};
 pub use error::EncodingError;
 pub use image_buffer::{cmyk_to_ycck, rgb_to_ycbcr, ImageBuffer};
 pub use quantization::QuantizationTableType;
-pub use writer::{Density, JfifWrite};
+pub use writer::{CallbackWriter, Density, JfifWrite};
 
+#[cfg(all(
+    feature = "benchmark",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub use avx2::fdct_avx2;
 #[cfg(feature = "benchmark")]
 pub use fdct::fdct;
-#[cfg(all(feature = "benchmark", feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-pub use avx2::fdct_avx2;
 
 #[cfg(test)]
 mod tests {
-    use crate::image_buffer::rgb_to_ycbcr;
-    use crate::{ColorType, Encoder, QuantizationTableType, SamplingFactor};
+    use crate::image_buffer::{cmyk_to_ycck, rgb_to_ycbcr};
+    use crate::{
+        CallbackWriter, ColorType, Encoder, QuantizationTableType, SamplingFactor, StripEncoder,
+    };
     use jpeg_decoder::{Decoder, ImageInfo, PixelFormat};
 
     use alloc::boxed::Box;
+    use alloc::rc::Rc;
     use alloc::vec;
     use alloc::vec::Vec;
+    use core::cell::RefCell;
 
     fn create_test_img_rgb() -> (Vec<u8>, u16, u16) {
         // Ensure size which which ensures an odd MCU count per row to test chroma subsampling
@@ -76,6 +84,24 @@ mod tests {
                 data.push(x as u8);
                 data.push((y * 2) as u8);
                 data.push(((x + y * 2) / 2) as u8);
+            }
+        }
+
+        (data, width as u16, height as u16)
+    }
+
+    fn create_test_img_bgr() -> (Vec<u8>, u16, u16) {
+        let width = 258;
+        let height = 128;
+
+        let mut data = Vec::with_capacity(width * height * 3);
+
+        for y in 0..height {
+            for x in 0..width {
+                let x = x.min(255);
+                data.push(((x + y * 2) / 2) as u8);
+                data.push((y * 2) as u8);
+                data.push(x as u8);
             }
         }
 
@@ -102,6 +128,25 @@ mod tests {
         (data, width as u16, height as u16)
     }
 
+    fn create_test_img_bgra() -> (Vec<u8>, u16, u16) {
+        let width = 258;
+        let height = 128;
+
+        let mut data = Vec::with_capacity(width * height * 4);
+
+        for y in 0..height {
+            for x in 0..width {
+                let x = x.min(255);
+                data.push(((x + y * 2) / 2) as u8);
+                data.push((y * 2) as u8);
+                data.push(x as u8);
+                data.push((255 - x) as u8);
+            }
+        }
+
+        (data, width as u16, height as u16)
+    }
+
     fn create_test_img_gray() -> (Vec<u8>, u16, u16) {
         let width = 258;
         let height = 128;
@@ -113,6 +158,25 @@ mod tests {
                 let x = x.min(255);
                 let (y, _, _) = rgb_to_ycbcr(x as u8, (y * 2) as u8, ((x + y * 2) / 2) as u8);
                 data.push(y);
+            }
+        }
+
+        (data, width as u16, height as u16)
+    }
+
+    fn create_test_img_ycbcr() -> (Vec<u8>, u16, u16) {
+        let width = 258;
+        let height = 128;
+
+        let mut data = Vec::with_capacity(width * height * 3);
+
+        for y in 0..height {
+            for x in 0..width {
+                let x = x.min(255);
+                let (yy, cb, cr) = rgb_to_ycbcr(x as u8, (y * 2) as u8, ((x + y * 2) / 2) as u8);
+                data.push(yy);
+                data.push(cb);
+                data.push(cr);
             }
         }
 
@@ -136,6 +200,21 @@ mod tests {
         }
 
         (data, width as u16, height as u16)
+    }
+
+    fn create_test_img_ycck() -> (Vec<u8>, u16, u16) {
+        let (cmyk, width, height) = create_test_img_cmyk();
+        let mut data = Vec::with_capacity(cmyk.len());
+
+        for pixel in cmyk.chunks_exact(4) {
+            let (y, cb, cr, k) = cmyk_to_ycck(pixel[0], pixel[1], pixel[2], pixel[3]);
+            data.push(y);
+            data.push(cb);
+            data.push(cr);
+            data.push(k);
+        }
+
+        (data, width, height)
     }
 
     fn decode(data: &[u8]) -> (Vec<u8>, ImageInfo) {
@@ -168,6 +247,41 @@ mod tests {
                 v2
             );
         }
+    }
+
+    fn assert_strip_matches(
+        data: &[u8],
+        width: u16,
+        height: u16,
+        color_type: ColorType,
+        quality: u8,
+        strip_height: usize,
+    ) {
+        assert!(strip_height > 0, "Strip height must be positive");
+
+        let mut expected = Vec::new();
+        Encoder::new(&mut expected, quality)
+            .encode(data, width, height, color_type)
+            .unwrap();
+
+        let streaming_encoder = Encoder::new(Vec::new(), quality);
+        let mut strip_encoder = streaming_encoder
+            .into_strip_encoder(width, height, color_type)
+            .unwrap();
+
+        let header = strip_encoder.header_bytes().unwrap();
+        let row_stride = usize::from(width) * color_type.get_bytes_per_pixel();
+
+        for chunk in data.chunks(row_stride * strip_height) {
+            strip_encoder.encode_strip(chunk).unwrap();
+        }
+
+        let result = strip_encoder.finish().unwrap();
+
+        assert_eq!(result, expected);
+        assert_eq!(&result[..header.len()], header.as_slice());
+        let footer = StripEncoder::<Vec<u8>>::footer_bytes();
+        assert_eq!(&result[result.len() - footer.len()..], &footer);
     }
 
     #[test]
@@ -207,6 +321,109 @@ mod tests {
             .unwrap();
 
         check_result(data, width, height, &mut result, PixelFormat::RGB24);
+    }
+
+    #[test]
+    fn test_rgb_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_rgb();
+        assert_strip_matches(&data, width, height, ColorType::Rgb, 80, 5);
+    }
+
+    #[test]
+    fn test_gray_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_gray();
+        assert_strip_matches(&data, width, height, ColorType::Luma, 90, 7);
+    }
+
+    #[test]
+    fn test_bgr_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_bgr();
+        assert_strip_matches(&data, width, height, ColorType::Bgr, 75, 3);
+    }
+
+    #[test]
+    fn test_bgra_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_bgra();
+        assert_strip_matches(&data, width, height, ColorType::Bgra, 85, 6);
+    }
+
+    #[test]
+    fn test_ycbcr_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_ycbcr();
+        assert_strip_matches(&data, width, height, ColorType::Ycbcr, 70, 4);
+    }
+
+    #[test]
+    fn test_cmyk_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_cmyk();
+        assert_strip_matches(&data, width, height, ColorType::Cmyk, 70, 5);
+    }
+
+    #[test]
+    fn test_cmyk_as_ycck_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_cmyk();
+        assert_strip_matches(&data, width, height, ColorType::CmykAsYcck, 65, 9);
+    }
+
+    #[test]
+    fn test_ycck_strip_encoder_matches() {
+        let (data, width, height) = create_test_img_ycck();
+        assert_strip_matches(&data, width, height, ColorType::Ycck, 60, 11);
+    }
+
+    #[test]
+    fn test_strip_encoder_callback_writer() {
+        let (data, width, height) = create_test_img_rgb();
+        let segments: Rc<RefCell<Vec<Vec<u8>>>> = Rc::new(RefCell::new(Vec::new()));
+        let captured = Rc::clone(&segments);
+
+        let writer = CallbackWriter::new(move |chunk: &[u8]| {
+            captured.borrow_mut().push(chunk.to_vec());
+            Ok(())
+        });
+
+        let streaming_encoder = Encoder::new(writer, 80);
+        let mut strip_encoder = streaming_encoder
+            .into_strip_encoder(width, height, ColorType::Rgb)
+            .unwrap();
+
+        let header_bytes = strip_encoder.header_bytes().unwrap();
+        strip_encoder.write_headers().unwrap();
+
+        let header_snapshot = segments.borrow().clone();
+        let header_count = header_snapshot.len();
+        assert!(header_count > 0);
+        let header_written: Vec<u8> = header_snapshot
+            .iter()
+            .flat_map(|chunk| chunk.iter().copied())
+            .collect();
+        assert_eq!(header_written, header_bytes);
+
+        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
+        for chunk in data.chunks(row_stride * 6) {
+            strip_encoder.encode_strip(chunk).unwrap();
+        }
+
+        let callback_writer = strip_encoder.finish().unwrap();
+        core::mem::drop(callback_writer);
+
+        let segments_snapshot = segments.borrow().clone();
+        assert!(segments_snapshot.len() >= header_count);
+
+        let all_bytes: Vec<u8> = segments_snapshot
+            .iter()
+            .flat_map(|chunk| chunk.iter().copied())
+            .collect();
+
+        let mut expected = Vec::new();
+        Encoder::new(&mut expected, 80)
+            .encode(&data, width, height, ColorType::Rgb)
+            .unwrap();
+
+        assert_eq!(all_bytes, expected);
+
+        let footer = StripEncoder::<Vec<u8>>::footer_bytes();
+        assert!(all_bytes.ends_with(&footer));
     }
 
     #[test]

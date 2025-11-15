@@ -40,6 +40,27 @@ pub trait JfifWrite {
     fn write_all(&mut self, buf: &[u8]) -> Result<(), EncodingError>;
 }
 
+/// A [`JfifWrite`] adapter that forwards encoded chunks to a callback.
+pub struct CallbackWriter<F> {
+    callback: F,
+}
+
+impl<F> CallbackWriter<F> {
+    /// Create a new [`CallbackWriter`] from the provided callback.
+    pub fn new(callback: F) -> Self {
+        Self { callback }
+    }
+}
+
+impl<F> JfifWrite for CallbackWriter<F>
+where
+    F: FnMut(&[u8]) -> Result<(), EncodingError>,
+{
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), EncodingError> {
+        (self.callback)(buf)
+    }
+}
+
 #[cfg(not(feature = "std"))]
 impl<W: JfifWrite + ?Sized> JfifWrite for &mut W {
     fn write_all(&mut self, buf: &[u8]) -> Result<(), EncodingError> {
@@ -158,6 +179,10 @@ impl<W: JfifWrite> JfifWriter<W> {
             self.bit_buffer = (self.bit_buffer << size) | value;
         }
         Ok(())
+    }
+
+    pub fn into_inner(self) -> W {
+        self.w
     }
 
     pub fn write_marker(&mut self, marker: Marker) -> Result<(), EncodingError> {
