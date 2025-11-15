@@ -112,6 +112,12 @@ impl StreamingJpegEncoder {
     pub fn finish(&mut self) -> Result<Uint8Array, JsValue> {
         let encoder = self
             .encoder
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("Encoder has already been finished"))?;
+        encoder.ensure_complete().map_err(encoding_error_to_js)?;
+
+        let encoder = self
+            .encoder
             .take()
             .ok_or_else(|| JsValue::from_str("Encoder has already been finished"))?;
         let writer = encoder.finish().map_err(encoding_error_to_js)?;

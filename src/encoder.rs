@@ -1275,6 +1275,15 @@ impl<W: JfifWrite> StripEncoder<W> {
         }
     }
 
+    #[cfg(feature = "wasm-bindgen")]
+    pub(crate) fn ensure_complete(&self) -> Result<(), EncodingError> {
+        match &self.inner {
+            StripEncoderVariant::Scalar(inner) => inner.ensure_complete(),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            StripEncoderVariant::Avx2(inner) => inner.ensure_complete(),
+        }
+    }
+
     pub fn header_bytes(&self) -> Result<Vec<u8>, EncodingError> {
         match &self.inner {
             StripEncoderVariant::Scalar(inner) => inner.header_bytes(),
@@ -1738,6 +1747,19 @@ impl<W: JfifWrite, OP: Operations> StripEncoderInner<W, OP> {
         self.writer.write_marker(Marker::EOI)?;
 
         Ok(self.writer.into_inner())
+    }
+
+    #[cfg(feature = "wasm-bindgen")]
+    fn ensure_complete(&self) -> Result<(), EncodingError> {
+        if self.processed_rows != usize::from(self.height) {
+            return Err(EncodingError::Write(alloc::format!(
+                "Expected {} rows but received {}",
+                self.height,
+                self.processed_rows
+            )));
+        }
+
+        Ok(())
     }
 }
 
