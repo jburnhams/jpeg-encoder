@@ -23,5 +23,20 @@ jobs:
         run: cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown
       - name: Generate bindings
         run: wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir pkg --target bundler --typescript --out-name jpeg_encoder
-      - name: Verify bindings are committed
-        run: git diff --exit-code pkg
+      - name: Commit updated bindings
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pkg
+          if [ -d wasm-bindings/pkg ]; then
+            git add wasm-bindings/pkg
+          fi
+          if git diff --cached --quiet; then
+            echo "No binding updates to commit"
+          else
+            git commit -m "Update wasm bindings"
+            git push
+          fi
