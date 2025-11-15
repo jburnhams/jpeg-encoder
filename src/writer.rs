@@ -160,6 +160,10 @@ impl<W: JfifWrite> JfifWriter<W> {
         Ok(())
     }
 
+    pub fn into_inner(self) -> W {
+        self.w
+    }
+
     pub fn write_marker(&mut self, marker: Marker) -> Result<(), EncodingError> {
         self.write(&[0xFF, marker.into()])
     }

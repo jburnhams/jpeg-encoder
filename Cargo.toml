@@ -11,15 +11,23 @@ readme = "README.md"
 repository = "https://github.com/vstroebel/jpeg-encoder"
 rust-version = "1.61"
 
+[workspace]
+members = [".", "wasm-bindings"]
+resolver = "2"
+
 [features]
 default = ["std"]
 simd = ["std"]
 std = []
+wasm-bindgen = ["dep:wasm-bindgen", "dep:js-sys", "dep:wee_alloc"]
 
 # DO NOT USE THIS IN PRODUCTION. Expose several internal functions for benchmark purposes.
 benchmark = []
 
 [dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+wee_alloc = { version = "0.4", optional = true }
 
 [dev-dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }

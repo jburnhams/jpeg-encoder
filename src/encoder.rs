@@ -8,6 +8,7 @@ use crate::{Density, EncodingError};
 
 use alloc::vec;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 #[cfg(feature = "std")]
 use std::io::BufWriter;
@@ -89,6 +90,17 @@ impl ColorType {
             Rgb | Bgr | Ycbcr => 3,
             Rgba | Bgra | Cmyk | CmykAsYcck | Ycck => 4,
         }
+    }
+}
+
+fn color_type_to_jpeg(color_type: ColorType) -> JpegColorType {
+    match color_type {
+        ColorType::Luma => JpegColorType::Luma,
+        ColorType::Rgb | ColorType::Rgba | ColorType::Bgr | ColorType::Bgra | ColorType::Ycbcr => {
+            JpegColorType::Ycbcr
+        }
+        ColorType::Cmyk => JpegColorType::Cmyk,
+        ColorType::CmykAsYcck | ColorType::Ycck => JpegColorType::Ycck,
     }
 }
 
@@ -178,6 +190,43 @@ pub(crate) struct Component {
     pub vertical_sampling_factor: u8,
 }
 
+/// Public description of a JPEG component used by strip encoding constructors.
+#[derive(Clone, Debug)]
+pub struct ComponentSpec {
+    pub id: u8,
+    pub quantization_table: u8,
+    pub dc_huffman_table: u8,
+    pub ac_huffman_table: u8,
+    pub horizontal_sampling_factor: u8,
+    pub vertical_sampling_factor: u8,
+}
+
+impl From<&Component> for ComponentSpec {
+    fn from(component: &Component) -> Self {
+        ComponentSpec {
+            id: component.id,
+            quantization_table: component.quantization_table,
+            dc_huffman_table: component.dc_huffman_table,
+            ac_huffman_table: component.ac_huffman_table,
+            horizontal_sampling_factor: component.horizontal_sampling_factor,
+            vertical_sampling_factor: component.vertical_sampling_factor,
+        }
+    }
+}
+
+impl From<ComponentSpec> for Component {
+    fn from(spec: ComponentSpec) -> Self {
+        Component {
+            id: spec.id,
+            quantization_table: spec.quantization_table,
+            dc_huffman_table: spec.dc_huffman_table,
+            ac_huffman_table: spec.ac_huffman_table,
+            horizontal_sampling_factor: spec.horizontal_sampling_factor,
+            vertical_sampling_factor: spec.vertical_sampling_factor,
+        }
+    }
+}
+
 macro_rules! add_component {
     ($components:expr, $id:expr, $dest:expr, $h_sample:expr, $v_sample:expr) => {
         $components.push(Component {
@@ -189,6 +238,119 @@ macro_rules! add_component {
             vertical_sampling_factor: $v_sample,
         });
     };
+}
+
+fn write_file_headers<W: JfifWrite>(
+    writer: &mut JfifWriter<W>,
+    density: Density,
+    jpeg_color_type: JpegColorType,
+    app_segments: &[(u8, Vec<u8>)],
+) -> Result<(), EncodingError> {
+    writer.write_marker(Marker::SOI)?;
+    writer.write_header(&density)?;
+
+    if jpeg_color_type == JpegColorType::Cmyk {
+        // Set ColorTransform info to "Unknown"
+        let app_14 = b"Adobe\0\0\0\0\0\0\0";
+        writer.write_segment(Marker::APP(14), app_14.as_ref())?;
+    } else if jpeg_color_type == JpegColorType::Ycck {
+        // Set ColorTransform info to YCCK
+        let app_14 = b"Adobe\0\0\0\0\0\0\x02";
+        writer.write_segment(Marker::APP(14), app_14.as_ref())?;
+    }
+
+    for (nr, data) in app_segments {
+        writer.write_segment(Marker::APP(*nr), data)?;
+    }
+
+    Ok(())
+}
+
+fn write_frame_header_common<W: JfifWrite>(
+    writer: &mut JfifWriter<W>,
+    width: u16,
+    height: u16,
+    components: &[Component],
+    progressive: bool,
+    q_tables: &[QuantizationTable; 2],
+    huffman_tables: &[(HuffmanTable, HuffmanTable); 2],
+    restart_interval: Option<u16>,
+    component_count: usize,
+) -> Result<(), EncodingError> {
+    writer.write_frame_header(width, height, components, progressive)?;
+
+    writer.write_quantization_segment(0, &q_tables[0])?;
+    writer.write_quantization_segment(1, &q_tables[1])?;
+
+    writer.write_huffman_segment(CodingClass::Dc, 0, &huffman_tables[0].0)?;
+    writer.write_huffman_segment(CodingClass::Ac, 0, &huffman_tables[0].1)?;
+
+    if component_count >= 3 {
+        writer.write_huffman_segment(CodingClass::Dc, 1, &huffman_tables[1].0)?;
+        writer.write_huffman_segment(CodingClass::Ac, 1, &huffman_tables[1].1)?;
+    }
+
+    if let Some(restart_interval) = restart_interval {
+        writer.write_dri(restart_interval)?;
+    }
+
+    Ok(())
+}
+
+fn build_components(sampling_factor: SamplingFactor, color: JpegColorType) -> Vec<Component> {
+    let (horizontal_sampling_factor, vertical_sampling_factor) =
+        sampling_factor.get_sampling_factors();
+
+    let mut components = Vec::new();
+
+    match color {
+        JpegColorType::Luma => {
+            add_component!(components, 0, 0, 1, 1);
+        }
+        JpegColorType::Ycbcr => {
+            add_component!(
+                components,
+                0,
+                0,
+                horizontal_sampling_factor,
+                vertical_sampling_factor
+            );
+            add_component!(components, 1, 1, 1, 1);
+            add_component!(components, 2, 1, 1, 1);
+        }
+        JpegColorType::Cmyk => {
+            add_component!(components, 0, 1, 1, 1);
+            add_component!(components, 1, 1, 1, 1);
+            add_component!(components, 2, 1, 1, 1);
+            add_component!(
+                components,
+                3,
+                0,
+                horizontal_sampling_factor,
+                vertical_sampling_factor
+            );
+        }
+        JpegColorType::Ycck => {
+            add_component!(
+                components,
+                0,
+                0,
+                horizontal_sampling_factor,
+                vertical_sampling_factor
+            );
+            add_component!(components, 1, 1, 1, 1);
+            add_component!(components, 2, 1, 1, 1);
+            add_component!(
+                components,
+                3,
+                0,
+                horizontal_sampling_factor,
+                vertical_sampling_factor
+            );
+        }
+    }
+
+    components
 }
 
 /// # The JPEG encoder
@@ -480,6 +642,73 @@ impl<W: JfifWrite> Encoder<W> {
         self.encode_image_internal::<_, DefaultOperations>(image)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn into_strip_encoder(
+        self,
+        width: u16,
+        height: u16,
+        color_type: ColorType,
+    ) -> Result<StripEncoder<W>, EncodingError> {
+        let Encoder {
+            writer,
+            density,
+            quality,
+            quantization_tables,
+            huffman_tables,
+            sampling_factor,
+            progressive_scans,
+            restart_interval,
+            optimize_huffman_table,
+            app_segments,
+            ..
+        } = self;
+
+        if width == 0 || height == 0 {
+            return Err(EncodingError::ZeroImageDimensions { width, height });
+        }
+
+        if progressive_scans.is_some() {
+            return Err(EncodingError::Write(
+                "Strip encoding does not support progressive scans".into(),
+            ));
+        }
+
+        if optimize_huffman_table {
+            return Err(EncodingError::Write(
+                "Strip encoding does not support optimized Huffman tables".into(),
+            ));
+        }
+
+        if !sampling_factor.supports_interleaved() {
+            return Err(EncodingError::Write(
+                "Strip encoding requires interleaved sampling factors".into(),
+            ));
+        }
+
+        let jpeg_color_type = color_type_to_jpeg(color_type);
+        let components = build_components(sampling_factor, jpeg_color_type);
+        let component_specs: Vec<_> = components.iter().map(ComponentSpec::from).collect();
+
+        let quantization_tables = [
+            QuantizationTable::new_with_quality(&quantization_tables[0], quality, true),
+            QuantizationTable::new_with_quality(&quantization_tables[1], quality, false),
+        ];
+
+        StripEncoder::new_with_tables(
+            writer.into_inner(),
+            width,
+            height,
+            color_type,
+            jpeg_color_type,
+            component_specs,
+            quantization_tables,
+            huffman_tables,
+            restart_interval,
+            density,
+            app_segments,
+        )
+    }
+
     fn encode_image_internal<I: ImageBuffer, OP: Operations>(
         mut self,
         image: I,
@@ -499,25 +728,12 @@ impl<W: JfifWrite> Encoder<W> {
         let jpeg_color_type = image.get_jpeg_color_type();
         self.init_components(jpeg_color_type);
 
-        self.writer.write_marker(Marker::SOI)?;
-
-        self.writer.write_header(&self.density)?;
-
-        if jpeg_color_type == JpegColorType::Cmyk {
-            //Set ColorTransform info to "Unknown"
-            let app_14 = b"Adobe\0\0\0\0\0\0\0";
-            self.writer
-                .write_segment(Marker::APP(14), app_14.as_ref())?;
-        } else if jpeg_color_type == JpegColorType::Ycck {
-            //Set ColorTransform info to YCCK
-            let app_14 = b"Adobe\0\0\0\0\0\0\x02";
-            self.writer
-                .write_segment(Marker::APP(14), app_14.as_ref())?;
-        }
-
-        for (nr, data) in &self.app_segments {
-            self.writer.write_segment(Marker::APP(*nr), data)?;
-        }
+        write_file_headers(
+            &mut self.writer,
+            self.density,
+            jpeg_color_type,
+            &self.app_segments,
+        )?;
 
         if let Some(scans) = self.progressive_scans {
             self.encode_image_progressive::<_, OP>(image, scans, &q_tables)?;
@@ -533,67 +749,11 @@ impl<W: JfifWrite> Encoder<W> {
     }
 
     fn init_components(&mut self, color: JpegColorType) {
-        let (horizontal_sampling_factor, vertical_sampling_factor) =
-            self.sampling_factor.get_sampling_factors();
-
-        match color {
-            JpegColorType::Luma => {
-                add_component!(self.components, 0, 0, 1, 1);
-            }
-            JpegColorType::Ycbcr => {
-                add_component!(
-                    self.components,
-                    0,
-                    0,
-                    horizontal_sampling_factor,
-                    vertical_sampling_factor
-                );
-                add_component!(self.components, 1, 1, 1, 1);
-                add_component!(self.components, 2, 1, 1, 1);
-            }
-            JpegColorType::Cmyk => {
-                add_component!(self.components, 0, 1, 1, 1);
-                add_component!(self.components, 1, 1, 1, 1);
-                add_component!(self.components, 2, 1, 1, 1);
-                add_component!(
-                    self.components,
-                    3,
-                    0,
-                    horizontal_sampling_factor,
-                    vertical_sampling_factor
-                );
-            }
-            JpegColorType::Ycck => {
-                add_component!(
-                    self.components,
-                    0,
-                    0,
-                    horizontal_sampling_factor,
-                    vertical_sampling_factor
-                );
-                add_component!(self.components, 1, 1, 1, 1);
-                add_component!(self.components, 2, 1, 1, 1);
-                add_component!(
-                    self.components,
-                    3,
-                    0,
-                    horizontal_sampling_factor,
-                    vertical_sampling_factor
-                );
-            }
-        }
+        self.components = build_components(self.sampling_factor, color);
     }
 
     fn get_max_sampling_size(&self) -> (usize, usize) {
-        let max_h_sampling = self.components.iter().fold(1, |value, component| {
-            value.max(component.horizontal_sampling_factor)
-        });
-
-        let max_v_sampling = self.components.iter().fold(1, |value, component| {
-            value.max(component.vertical_sampling_factor)
-        });
-
-        (usize::from(max_h_sampling), usize::from(max_v_sampling))
+        get_max_sampling_size_for(&self.components)
     }
 
     fn write_frame_header<I: ImageBuffer>(
@@ -601,62 +761,21 @@ impl<W: JfifWrite> Encoder<W> {
         image: &I,
         q_tables: &[QuantizationTable; 2],
     ) -> Result<(), EncodingError> {
-        self.writer.write_frame_header(
+        write_frame_header_common(
+            &mut self.writer,
             image.width(),
             image.height(),
             &self.components,
             self.progressive_scans.is_some(),
-        )?;
-
-        self.writer.write_quantization_segment(0, &q_tables[0])?;
-        self.writer.write_quantization_segment(1, &q_tables[1])?;
-
-        self.writer
-            .write_huffman_segment(CodingClass::Dc, 0, &self.huffman_tables[0].0)?;
-
-        self.writer
-            .write_huffman_segment(CodingClass::Ac, 0, &self.huffman_tables[0].1)?;
-
-        if image.get_jpeg_color_type().get_num_components() >= 3 {
-            self.writer
-                .write_huffman_segment(CodingClass::Dc, 1, &self.huffman_tables[1].0)?;
-
-            self.writer
-                .write_huffman_segment(CodingClass::Ac, 1, &self.huffman_tables[1].1)?;
-        }
-
-        if let Some(restart_interval) = self.restart_interval {
-            self.writer.write_dri(restart_interval)?;
-        }
-
-        Ok(())
+            q_tables,
+            &self.huffman_tables,
+            self.restart_interval,
+            image.get_jpeg_color_type().get_num_components(),
+        )
     }
 
     fn init_rows(&mut self, buffer_size: usize) -> [Vec<u8>; 4] {
-        // To simplify the code and to give the compiler more infos to optimize stuff we always initialize 4 components
-        // Resource overhead should be minimal because an empty Vec doesn't allocate
-
-        match self.components.len() {
-            1 => [
-                Vec::with_capacity(buffer_size),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ],
-            3 => [
-                Vec::with_capacity(buffer_size),
-                Vec::with_capacity(buffer_size),
-                Vec::with_capacity(buffer_size),
-                Vec::new(),
-            ],
-            4 => [
-                Vec::with_capacity(buffer_size),
-                Vec::with_capacity(buffer_size),
-                Vec::with_capacity(buffer_size),
-                Vec::with_capacity(buffer_size),
-            ],
-            len => unreachable!("Unsupported component length: {}", len),
-        }
+        init_rows_for_components(self.components.len(), buffer_size)
     }
 
     /// Encode all components with one scan
@@ -685,10 +804,7 @@ impl<W: JfifWrite> Encoder<W> {
         let mut row: [Vec<_>; 4] = self.init_rows(buffer_size);
 
         let mut prev_dc = [0i16; 4];
-
-        let restart_interval = self.restart_interval.unwrap_or(0);
-        let mut restarts = 0;
-        let mut restarts_to_go = restart_interval;
+        let mut restart = RestartState::new(self.restart_interval);
 
         for block_y in 0..num_rows {
             for r in &mut row {
@@ -710,63 +826,19 @@ impl<W: JfifWrite> Encoder<W> {
                 }
             }
 
-            for block_x in 0..num_cols {
-                if restart_interval > 0 && restarts_to_go == 0 {
-                    self.writer.finalize_bit_buffer()?;
-                    self.writer
-                        .write_marker(Marker::RST((restarts % 8) as u8))?;
-
-                    prev_dc[0] = 0;
-                    prev_dc[1] = 0;
-                    prev_dc[2] = 0;
-                    prev_dc[3] = 0;
-                }
-
-                for (i, component) in self.components.iter().enumerate() {
-                    for v_offset in 0..component.vertical_sampling_factor as usize {
-                        for h_offset in 0..component.horizontal_sampling_factor as usize {
-                            let mut block = get_block(
-                                &row[i],
-                                block_x * 8 * max_h_sampling + (h_offset * 8),
-                                v_offset * 8,
-                                max_h_sampling
-                                    / component.horizontal_sampling_factor as usize,
-                                max_v_sampling
-                                    / component.vertical_sampling_factor as usize,
-                                buffer_width,
-                            );
-
-                            OP::fdct(&mut block);
-
-                            let mut q_block = [0i16; 64];
-
-                            OP::quantize_block(
-                                &block,
-                                &mut q_block,
-                                &q_tables[component.quantization_table as usize],
-                            );
-
-                            self.writer.write_block(
-                                &q_block,
-                                prev_dc[i],
-                                &self.huffman_tables[component.dc_huffman_table as usize].0,
-                                &self.huffman_tables[component.ac_huffman_table as usize].1,
-                            )?;
-
-                            prev_dc[i] = q_block[0];
-                        }
-                    }
-                }
-
-                if restart_interval > 0 {
-                    if restarts_to_go == 0 {
-                        restarts_to_go = restart_interval;
-                        restarts += 1;
-                        restarts &= 7;
-                    }
-                    restarts_to_go -= 1;
-                }
-            }
+            write_interleaved_mcu_row::<_, OP>(
+                &mut self.writer,
+                &self.components,
+                &self.huffman_tables,
+                q_tables,
+                &mut prev_dc,
+                max_h_sampling,
+                max_v_sampling,
+                buffer_width,
+                num_cols,
+                &mut restart,
+                &row,
+            )?;
         }
 
         self.writer.finalize_bit_buffer()?;
@@ -1168,6 +1240,529 @@ impl<W: JfifWrite> Encoder<W> {
     }
 }
 
+pub struct StripEncoder<W: JfifWrite> {
+    inner: StripEncoderVariant<W>,
+}
+
+enum StripEncoderVariant<W: JfifWrite> {
+    Scalar(StripEncoderInner<W, DefaultOperations>),
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    Avx2(StripEncoderInner<W, crate::avx2::AVX2Operations>),
+}
+
+impl<W: JfifWrite> StripEncoder<W> {
+    pub fn write_headers(&mut self) -> Result<(), EncodingError> {
+        match &mut self.inner {
+            StripEncoderVariant::Scalar(inner) => inner.write_headers(),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            StripEncoderVariant::Avx2(inner) => inner.write_headers(),
+        }
+    }
+
+    pub fn encode_strip(&mut self, data: &[u8]) -> Result<(), EncodingError> {
+        match &mut self.inner {
+            StripEncoderVariant::Scalar(inner) => inner.encode_strip(data),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            StripEncoderVariant::Avx2(inner) => inner.encode_strip(data),
+        }
+    }
+
+    pub fn finish(self) -> Result<W, EncodingError> {
+        match self.inner {
+            StripEncoderVariant::Scalar(inner) => inner.finish(),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            StripEncoderVariant::Avx2(inner) => inner.finish(),
+        }
+    }
+
+    #[cfg(feature = "wasm-bindgen")]
+    pub(crate) fn ensure_complete(&self) -> Result<(), EncodingError> {
+        match &self.inner {
+            StripEncoderVariant::Scalar(inner) => inner.ensure_complete(),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            StripEncoderVariant::Avx2(inner) => inner.ensure_complete(),
+        }
+    }
+
+    pub fn header_bytes(&self) -> Result<Vec<u8>, EncodingError> {
+        match &self.inner {
+            StripEncoderVariant::Scalar(inner) => inner.header_bytes(),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            StripEncoderVariant::Avx2(inner) => inner.header_bytes(),
+        }
+    }
+
+    pub fn footer_bytes() -> [u8; 2] {
+        [0xFF, Marker::EOI.into()]
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_tables(
+        writer: W,
+        width: u16,
+        height: u16,
+        color_type: ColorType,
+        jpeg_color_type: JpegColorType,
+        components: Vec<ComponentSpec>,
+        quantization_tables: [QuantizationTable; 2],
+        huffman_tables: [(HuffmanTable, HuffmanTable); 2],
+        restart_interval: Option<u16>,
+        density: Density,
+        app_segments: Vec<(u8, Vec<u8>)>,
+    ) -> Result<Self, EncodingError> {
+        if width == 0 || height == 0 {
+            return Err(EncodingError::ZeroImageDimensions { width, height });
+        }
+
+        if jpeg_color_type.get_num_components() != components.len() {
+            return Err(EncodingError::Write(alloc::format!(
+                "Component count {} does not match JPEG color type {:?}",
+                components.len(),
+                jpeg_color_type
+            )));
+        }
+
+        if color_type_to_jpeg(color_type) != jpeg_color_type {
+            return Err(EncodingError::Write(alloc::format!(
+                "Input color type {:?} is incompatible with JPEG color type {:?}",
+                color_type,
+                jpeg_color_type
+            )));
+        }
+
+        let components: Vec<Component> = components.into_iter().map(Component::from).collect();
+
+        let use_avx2 = {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            {
+                std::is_x86_feature_detected!("avx2")
+            }
+            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            {
+                false
+            }
+        };
+
+        if use_avx2 {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            {
+                use crate::avx2::AVX2Operations;
+
+                let inner = StripEncoderInner::<W, AVX2Operations>::new(
+                    writer,
+                    density,
+                    jpeg_color_type,
+                    components,
+                    quantization_tables,
+                    huffman_tables,
+                    restart_interval,
+                    app_segments,
+                    width,
+                    height,
+                    color_type,
+                );
+
+                return Ok(StripEncoder {
+                    inner: StripEncoderVariant::Avx2(inner),
+                });
+            }
+        }
+
+        let inner = StripEncoderInner::<W, DefaultOperations>::new(
+            writer,
+            density,
+            jpeg_color_type,
+            components,
+            quantization_tables,
+            huffman_tables,
+            restart_interval,
+            app_segments,
+            width,
+            height,
+            color_type,
+        );
+
+        Ok(StripEncoder {
+            inner: StripEncoderVariant::Scalar(inner),
+        })
+    }
+}
+
+struct StripEncoderInner<W: JfifWrite, OP: Operations> {
+    writer: JfifWriter<W>,
+    density: Density,
+    jpeg_color_type: JpegColorType,
+    components: Vec<Component>,
+    quantization_tables: [QuantizationTable; 2],
+    huffman_tables: [(HuffmanTable, HuffmanTable); 2],
+    restart_interval: Option<u16>,
+    app_segments: Vec<(u8, Vec<u8>)>,
+    width: u16,
+    height: u16,
+    max_h_sampling: usize,
+    max_v_sampling: usize,
+    buffer_width: usize,
+    num_cols: usize,
+    rows_per_mcu: usize,
+    prev_dc: [i16; 4],
+    restart_state: RestartState,
+    row_buffers: [Vec<u8>; 4],
+    last_rows: [Vec<u8>; 4],
+    pending_rows: usize,
+    processed_rows: usize,
+    headers_written: bool,
+    color_type: ColorType,
+    bytes_per_pixel: usize,
+    phantom: PhantomData<OP>,
+}
+
+impl<W: JfifWrite, OP: Operations> StripEncoderInner<W, OP> {
+    fn new(
+        writer: W,
+        density: Density,
+        jpeg_color_type: JpegColorType,
+        components: Vec<Component>,
+        quantization_tables: [QuantizationTable; 2],
+        huffman_tables: [(HuffmanTable, HuffmanTable); 2],
+        restart_interval: Option<u16>,
+        app_segments: Vec<(u8, Vec<u8>)>,
+        width: u16,
+        height: u16,
+        color_type: ColorType,
+    ) -> Self {
+        let (max_h_sampling, max_v_sampling) = get_max_sampling_size_for(&components);
+        let num_cols = ceil_div(usize::from(width), 8 * max_h_sampling);
+        let buffer_width = num_cols * 8 * max_h_sampling;
+        let rows_per_mcu = 8 * max_v_sampling;
+        let buffer_size = buffer_width * rows_per_mcu;
+        let component_count = components.len();
+
+        StripEncoderInner {
+            writer: JfifWriter::new(writer),
+            density,
+            jpeg_color_type,
+            components,
+            quantization_tables,
+            huffman_tables,
+            restart_interval,
+            app_segments,
+            width,
+            height,
+            max_h_sampling,
+            max_v_sampling,
+            buffer_width,
+            num_cols,
+            rows_per_mcu,
+            prev_dc: [0i16; 4],
+            restart_state: RestartState::new(restart_interval),
+            row_buffers: init_rows_for_components(component_count, buffer_size),
+            last_rows: init_rows_for_components(component_count, buffer_width),
+            pending_rows: 0,
+            processed_rows: 0,
+            headers_written: false,
+            color_type,
+            bytes_per_pixel: color_type.get_bytes_per_pixel(),
+            phantom: PhantomData,
+        }
+    }
+
+    fn write_headers(&mut self) -> Result<(), EncodingError> {
+        if self.headers_written {
+            return Ok(());
+        }
+
+        write_file_headers(
+            &mut self.writer,
+            self.density,
+            self.jpeg_color_type,
+            &self.app_segments,
+        )?;
+
+        write_frame_header_common(
+            &mut self.writer,
+            self.width,
+            self.height,
+            &self.components,
+            false,
+            &self.quantization_tables,
+            &self.huffman_tables,
+            self.restart_interval,
+            self.jpeg_color_type.get_num_components(),
+        )?;
+
+        let component_refs: Vec<_> = self.components.iter().collect();
+        self.writer.write_scan_header(&component_refs, None)?;
+
+        self.headers_written = true;
+
+        Ok(())
+    }
+
+    fn ensure_headers(&mut self) -> Result<(), EncodingError> {
+        if !self.headers_written {
+            self.write_headers()?;
+        }
+        Ok(())
+    }
+
+    fn header_bytes(&self) -> Result<Vec<u8>, EncodingError> {
+        let mut buffer = Vec::new();
+        let mut writer = JfifWriter::new(&mut buffer);
+
+        write_file_headers(
+            &mut writer,
+            self.density,
+            self.jpeg_color_type,
+            &self.app_segments,
+        )?;
+
+        write_frame_header_common(
+            &mut writer,
+            self.width,
+            self.height,
+            &self.components,
+            false,
+            &self.quantization_tables,
+            &self.huffman_tables,
+            self.restart_interval,
+            self.jpeg_color_type.get_num_components(),
+        )?;
+
+        let component_refs: Vec<_> = self.components.iter().collect();
+        writer.write_scan_header(&component_refs, None)?;
+
+        Ok(buffer)
+    }
+
+    fn encode_strip(&mut self, data: &[u8]) -> Result<(), EncodingError> {
+        self.ensure_headers()?;
+
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let row_stride = usize::from(self.width) * self.bytes_per_pixel;
+
+        if data.len() % row_stride != 0 {
+            return Err(EncodingError::Write(alloc::format!(
+                "Strip length {} is not a multiple of row stride {}",
+                data.len(),
+                row_stride
+            )));
+        }
+
+        let rows = data.len() / row_stride;
+        let remaining_rows = usize::from(self.height) - self.processed_rows;
+
+        if rows > remaining_rows {
+            return Err(EncodingError::Write(alloc::format!(
+                "Received {} additional rows but only {} rows remain",
+                rows,
+                remaining_rows
+            )));
+        }
+
+        for chunk in data.chunks(row_stride) {
+            self.push_row(chunk)?;
+            self.processed_rows += 1;
+        }
+
+        Ok(())
+    }
+
+    fn push_row(&mut self, row_data: &[u8]) -> Result<(), EncodingError> {
+        match self.color_type {
+            ColorType::Luma => {
+                self.row_buffers[0].extend_from_slice(row_data);
+            }
+            ColorType::Rgb => {
+                for pixel in row_data.chunks_exact(3) {
+                    let (y, cb, cr) = rgb_to_ycbcr(pixel[0], pixel[1], pixel[2]);
+                    self.row_buffers[0].push(y);
+                    self.row_buffers[1].push(cb);
+                    self.row_buffers[2].push(cr);
+                }
+            }
+            ColorType::Rgba => {
+                for pixel in row_data.chunks_exact(4) {
+                    let (y, cb, cr) = rgb_to_ycbcr(pixel[0], pixel[1], pixel[2]);
+                    self.row_buffers[0].push(y);
+                    self.row_buffers[1].push(cb);
+                    self.row_buffers[2].push(cr);
+                }
+            }
+            ColorType::Bgr => {
+                for pixel in row_data.chunks_exact(3) {
+                    let (y, cb, cr) = rgb_to_ycbcr(pixel[2], pixel[1], pixel[0]);
+                    self.row_buffers[0].push(y);
+                    self.row_buffers[1].push(cb);
+                    self.row_buffers[2].push(cr);
+                }
+            }
+            ColorType::Bgra => {
+                for pixel in row_data.chunks_exact(4) {
+                    let (y, cb, cr) = rgb_to_ycbcr(pixel[2], pixel[1], pixel[0]);
+                    self.row_buffers[0].push(y);
+                    self.row_buffers[1].push(cb);
+                    self.row_buffers[2].push(cr);
+                }
+            }
+            ColorType::Ycbcr => {
+                for pixel in row_data.chunks_exact(3) {
+                    self.row_buffers[0].push(pixel[0]);
+                    self.row_buffers[1].push(pixel[1]);
+                    self.row_buffers[2].push(pixel[2]);
+                }
+            }
+            ColorType::Cmyk => {
+                for pixel in row_data.chunks_exact(4) {
+                    self.row_buffers[0].push(pixel[0]);
+                    self.row_buffers[1].push(pixel[1]);
+                    self.row_buffers[2].push(pixel[2]);
+                    self.row_buffers[3].push(pixel[3]);
+                }
+            }
+            ColorType::CmykAsYcck => {
+                for pixel in row_data.chunks_exact(4) {
+                    let (y, cb, cr, k) = cmyk_to_ycck(pixel[0], pixel[1], pixel[2], pixel[3]);
+                    self.row_buffers[0].push(y);
+                    self.row_buffers[1].push(cb);
+                    self.row_buffers[2].push(cr);
+                    self.row_buffers[3].push(k);
+                }
+            }
+            ColorType::Ycck => {
+                for pixel in row_data.chunks_exact(4) {
+                    self.row_buffers[0].push(pixel[0]);
+                    self.row_buffers[1].push(pixel[1]);
+                    self.row_buffers[2].push(pixel[2]);
+                    self.row_buffers[3].push(pixel[3]);
+                }
+            }
+        }
+
+        let component_count = self.components.len();
+
+        for _ in usize::from(self.width)..self.buffer_width {
+            for buffer in self.row_buffers.iter_mut().take(component_count) {
+                if let Some(&value) = buffer.last() {
+                    buffer.push(value);
+                }
+            }
+        }
+
+        for i in 0..component_count {
+            let buffer = &self.row_buffers[i];
+            let start = buffer.len() - self.buffer_width;
+            self.last_rows[i].clear();
+            self.last_rows[i].extend_from_slice(&buffer[start..]);
+        }
+
+        for i in component_count..self.last_rows.len() {
+            self.last_rows[i].clear();
+        }
+
+        self.pending_rows += 1;
+
+        if self.pending_rows == self.rows_per_mcu {
+            self.flush_full_mcu_row()?;
+        }
+
+        Ok(())
+    }
+
+    fn pad_pending_rows(&mut self) -> Result<(), EncodingError> {
+        if self.pending_rows == 0 {
+            return Ok(());
+        }
+
+        if self.rows_per_mcu == 0 {
+            return Err(EncodingError::Write(
+                "Invalid MCU configuration for strip encoder".into(),
+            ));
+        }
+
+        let missing = self.rows_per_mcu - self.pending_rows;
+
+        for _ in 0..missing {
+            for (i, buffer) in self
+                .row_buffers
+                .iter_mut()
+                .enumerate()
+                .take(self.components.len())
+            {
+                if self.last_rows[i].is_empty() {
+                    return Err(EncodingError::Write(
+                        "Cannot pad final MCU without prior row data".into(),
+                    ));
+                }
+                buffer.extend_from_slice(&self.last_rows[i]);
+            }
+        }
+
+        self.pending_rows = self.rows_per_mcu;
+        self.flush_full_mcu_row()
+    }
+
+    fn flush_full_mcu_row(&mut self) -> Result<(), EncodingError> {
+        write_interleaved_mcu_row::<_, OP>(
+            &mut self.writer,
+            &self.components,
+            &self.huffman_tables,
+            &self.quantization_tables,
+            &mut self.prev_dc,
+            self.max_h_sampling,
+            self.max_v_sampling,
+            self.buffer_width,
+            self.num_cols,
+            &mut self.restart_state,
+            &self.row_buffers,
+        )?;
+
+        for buffer in &mut self.row_buffers {
+            buffer.clear();
+        }
+
+        self.pending_rows = 0;
+
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<W, EncodingError> {
+        self.ensure_headers()?;
+
+        if self.processed_rows != usize::from(self.height) {
+            return Err(EncodingError::Write(alloc::format!(
+                "Expected {} rows but received {}",
+                self.height,
+                self.processed_rows
+            )));
+        }
+
+        if self.pending_rows > 0 {
+            self.pad_pending_rows()?;
+        }
+
+        self.writer.finalize_bit_buffer()?;
+        self.writer.write_marker(Marker::EOI)?;
+
+        Ok(self.writer.into_inner())
+    }
+
+    #[cfg(feature = "wasm-bindgen")]
+    fn ensure_complete(&self) -> Result<(), EncodingError> {
+        if self.processed_rows != usize::from(self.height) {
+            return Err(EncodingError::Write(alloc::format!(
+                "Expected {} rows but received {}",
+                self.height,
+                self.processed_rows
+            )));
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(feature = "std")]
 impl Encoder<BufWriter<File>> {
     /// Create a new decoder that writes into a file
@@ -1185,6 +1780,110 @@ impl Encoder<BufWriter<File>> {
         let buf = BufWriter::new(file);
         Ok(Self::new(buf, quality))
     }
+}
+
+struct RestartState {
+    interval: u16,
+    restarts: u16,
+    restarts_to_go: u16,
+}
+
+impl RestartState {
+    fn new(interval: Option<u16>) -> Self {
+        let interval = interval.unwrap_or(0);
+        RestartState {
+            interval,
+            restarts: 0,
+            restarts_to_go: interval,
+        }
+    }
+
+    fn before_mcu<W: JfifWrite>(
+        &mut self,
+        writer: &mut JfifWriter<W>,
+        prev_dc: &mut [i16; 4],
+        component_count: usize,
+    ) -> Result<(), EncodingError> {
+        if self.interval > 0 && self.restarts_to_go == 0 {
+            writer.finalize_bit_buffer()?;
+            writer.write_marker(Marker::RST((self.restarts % 8) as u8))?;
+
+            for value in prev_dc.iter_mut().take(component_count) {
+                *value = 0;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn after_mcu(&mut self) {
+        if self.interval > 0 {
+            if self.restarts_to_go == 0 {
+                self.restarts_to_go = self.interval;
+                self.restarts = (self.restarts + 1) & 7;
+            }
+
+            if self.restarts_to_go > 0 {
+                self.restarts_to_go -= 1;
+            }
+        }
+    }
+}
+
+fn write_interleaved_mcu_row<W: JfifWrite, OP: Operations>(
+    writer: &mut JfifWriter<W>,
+    components: &[Component],
+    huffman_tables: &[(HuffmanTable, HuffmanTable); 2],
+    q_tables: &[QuantizationTable; 2],
+    prev_dc: &mut [i16; 4],
+    max_h_sampling: usize,
+    max_v_sampling: usize,
+    buffer_width: usize,
+    num_cols: usize,
+    restart: &mut RestartState,
+    row: &[Vec<u8>; 4],
+) -> Result<(), EncodingError> {
+    for block_x in 0..num_cols {
+        restart.before_mcu(writer, prev_dc, components.len())?;
+
+        for (i, component) in components.iter().enumerate() {
+            for v_offset in 0..component.vertical_sampling_factor as usize {
+                for h_offset in 0..component.horizontal_sampling_factor as usize {
+                    let mut block = get_block(
+                        &row[i],
+                        block_x * 8 * max_h_sampling + (h_offset * 8),
+                        v_offset * 8,
+                        max_h_sampling / component.horizontal_sampling_factor as usize,
+                        max_v_sampling / component.vertical_sampling_factor as usize,
+                        buffer_width,
+                    );
+
+                    OP::fdct(&mut block);
+
+                    let mut q_block = [0i16; 64];
+
+                    OP::quantize_block(
+                        &block,
+                        &mut q_block,
+                        &q_tables[component.quantization_table as usize],
+                    );
+
+                    writer.write_block(
+                        &q_block,
+                        prev_dc[i],
+                        &huffman_tables[component.dc_huffman_table as usize].0,
+                        &huffman_tables[component.ac_huffman_table as usize].1,
+                    )?;
+
+                    prev_dc[i] = q_block[0];
+                }
+            }
+        }
+
+        restart.after_mcu();
+    }
+
+    Ok(())
 }
 
 fn get_block(
@@ -1211,6 +1910,42 @@ fn get_block(
 
 fn ceil_div(value: usize, div: usize) -> usize {
     value / div + usize::from(value % div != 0)
+}
+
+fn init_rows_for_components(components: usize, buffer_size: usize) -> [Vec<u8>; 4] {
+    match components {
+        1 => [
+            Vec::with_capacity(buffer_size),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ],
+        3 => [
+            Vec::with_capacity(buffer_size),
+            Vec::with_capacity(buffer_size),
+            Vec::with_capacity(buffer_size),
+            Vec::new(),
+        ],
+        4 => [
+            Vec::with_capacity(buffer_size),
+            Vec::with_capacity(buffer_size),
+            Vec::with_capacity(buffer_size),
+            Vec::with_capacity(buffer_size),
+        ],
+        len => unreachable!("Unsupported component length: {}", len),
+    }
+}
+
+fn get_max_sampling_size_for(components: &[Component]) -> (usize, usize) {
+    let max_h_sampling = components.iter().fold(1, |value, component| {
+        value.max(component.horizontal_sampling_factor)
+    });
+
+    let max_v_sampling = components.iter().fold(1, |value, component| {
+        value.max(component.vertical_sampling_factor)
+    });
+
+    (usize::from(max_h_sampling), usize::from(max_v_sampling))
 }
 
 fn get_num_bits(mut value: i16) -> u8 {
