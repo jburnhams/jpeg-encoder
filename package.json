@@ -6,5 +6,8 @@
   "module": "pkg/jpeg_encoder.js",
   "types": "pkg/jpeg_encoder.d.ts",
   "files": ["pkg"],
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "build": "wasm-pack build wasm-bindings --release --out-dir pkg && wasm-opt -Oz pkg/jpeg_encoder_bg.wasm -o pkg/jpeg_encoder_bg.wasm"
+  }
 }
