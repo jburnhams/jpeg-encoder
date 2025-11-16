@@ -28,11 +28,17 @@ jobs:
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Build WASM
         run: npm run build
 
       - name: Run integration tests
         run: npm test
+
+      - name: Run browser tests
+        run: npm run test:browser
 
       - name: Run example
         run: npm run example

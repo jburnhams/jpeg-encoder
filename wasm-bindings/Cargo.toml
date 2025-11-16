@@ -9,6 +9,3 @@ crate-type = ["cdylib"]
 
 [dependencies]
 jpeg-encoder = { path = "..", default-features = false, features = ["wasm-bindgen"] }
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false

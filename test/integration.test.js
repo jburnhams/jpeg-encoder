@@ -284,6 +284,47 @@ function main() {
         failed++;
     }
 
+    // Test 10: Verify header only in first strip
+    if (test('Header only appears in first strip', () => {
+        const width = 64;
+        const height = 64;
+        const stripHeight = 16;
+
+        const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, 85);
+
+        const chunks = [];
+        for (let i = 0; i < 4; i++) {
+            const strip = createSolidImage(width, stripHeight, i * 60, 128, 255 - i * 60);
+            const chunk = encoder.encode_strip(strip);
+            chunks.push(chunk);
+
+            // Check for JPEG SOI marker (0xFF 0xD8)
+            const hasSOI = chunk[0] === 0xFF && chunk[1] === 0xD8;
+
+            if (i === 0) {
+                assert(hasSOI, 'First strip should contain JPEG header (SOI marker)');
+                assert(chunk.length > 500, 'First strip should be large (contains headers)');
+            } else {
+                assert(!hasSOI, `Strip ${i + 1} should not contain JPEG header`);
+                assert(chunk.length < 100, `Strip ${i + 1} should be small (no headers)`);
+            }
+        }
+
+        const finalChunk = encoder.finish();
+        chunks.push(finalChunk);
+
+        // Verify EOI marker in final chunk
+        assert.equal(finalChunk[finalChunk.length - 2], 0xFF, 'Final chunk should end with 0xFF');
+        assert.equal(finalChunk[finalChunk.length - 1], 0xD9, 'Final chunk should end with EOI marker');
+
+        const jpegData = concatUint8Arrays(...chunks);
+        validateJpeg(jpegData);
+    })) {
+        passed++;
+    } else {
+        failed++;
+    }
+
     console.log('\n====================================');
     console.log(`Tests passed: ${passed}`);
     console.log(`Tests failed: ${failed}`);
