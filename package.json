@@ -10,8 +10,8 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown && wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir pkg --target bundler --typescript --out-name jpeg_encoder",
-    "build:web": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown && /root/.cache/.wasm-pack/wasm-bindgen-cargo-install-0.2.105/wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir docs/dist --target web --typescript --out-name jpeg_encoder",
+    "build": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown && /root/.cache/.wasm-pack/wasm-bindgen-cargo-install-0.2.105/wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir pkg --target web --typescript --out-name jpeg_encoder",
+    "prepare:docs": "cp -r pkg/* docs/dist/",
     "test": "node test/integration.test.js",
     "test:browser": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js",
     "test:all": "npm test && npm run test:browser",

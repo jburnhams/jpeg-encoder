@@ -3,8 +3,18 @@
  */
 
 import { describe, test, expect, beforeAll } from '@jest/globals';
-import { StreamingJpegEncoder, WasmColorType } from '../pkg/jpeg_encoder.js';
+import init, { StreamingJpegEncoder, WasmColorType } from '../pkg/jpeg_encoder.js';
 import { createCanvas } from 'canvas';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// Initialize WASM module once before all tests
+// In Node/Jest, we need to pass the WASM bytes directly
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const wasmBytes = readFileSync(join(__dirname, '../pkg/jpeg_encoder_bg.wasm'));
+await init(wasmBytes);
 
 /**
  * Concatenates multiple Uint8Arrays

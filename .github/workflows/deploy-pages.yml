@@ -1,8 +1,10 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [ main ]
+  workflow_run:
+    workflows: ["wasm-bindgen"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,29 +17,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
+    # Only run if the wasm-bindgen workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli
-
-      - name: Build WASM for web
-        run: |
-          cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown
-          wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir docs/dist --target web --typescript --out-name jpeg_encoder
+      - name: Copy WASM files to docs
+        run: npm run prepare:docs
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -47,13 +46,6 @@ jobs:
         with:
           path: './docs'
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
