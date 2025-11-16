@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JPEG Encoder WASM - Live Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            text-align: center;
+            font-size: 2.5rem;
+        }
+
+        header p {
+            text-align: center;
+            opacity: 0.9;
+            margin-top: 0.5rem;
+        }
+
+        .demo-section {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .demo-section h2 {
+            margin-bottom: 1.5rem;
+            color: #2c3e50;
+        }
+
+        .controls {
+            margin-bottom: 1.5rem;
+        }
+
+        .control-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        input[type="color"] {
+            width: 60px;
+            height: 40px;
+            border: none;
+            cursor: pointer;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .canvas-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .canvas-box {
+            text-align: center;
+        }
+
+        .canvas-box h3 {
+            margin-bottom: 1rem;
+            color: #34495e;
+        }
+
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .result-output img {
+            border: 2px solid #27ae60;
+            border-radius: 4px;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .stats {
+            background: #ecf0f1;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+        }
+
+        .stats p {
+            margin: 0.5rem 0;
+        }
+
+        .stats strong {
+            color: #2c3e50;
+        }
+
+        .examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .example-btn {
+            background: #9b59b6;
+            margin: 0;
+            width: 100%;
+        }
+
+        .example-btn:hover {
+            background: #8e44ad;
+        }
+
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .info-box {
+            background: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>JPEG Encoder WASM</h1>
+            <p>Real-time JPEG encoding directly in your browser using WebAssembly</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="demo-section">
+            <h2>Interactive Demo</h2>
+
+            <div class="info-box">
+                <p><strong>How it works:</strong> This demo uses a WebAssembly-compiled JPEG encoder written in Rust. Draw on the canvas below, adjust the quality slider, and watch as it encodes to JPEG in real-time!</p>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label for="quality">JPEG Quality: <span id="quality-value">85</span></label>
+                    <input type="range" id="quality" min="1" max="100" value="85">
+                </div>
+
+                <div class="control-group">
+                    <label for="color">Brush Color:</label>
+                    <input type="color" id="color" value="#3498db">
+                </div>
+
+                <div class="control-group">
+                    <button id="encode-btn">Encode to JPEG</button>
+                    <button id="clear-btn">Clear Canvas</button>
+                    <button id="download-btn" style="background: #27ae60;">Download JPEG</button>
+                </div>
+
+                <div class="examples">
+                    <button class="example-btn" data-example="gradient">Gradient</button>
+                    <button class="example-btn" data-example="shapes">Shapes</button>
+                    <button class="example-btn" data-example="pattern">Pattern</button>
+                    <button class="example-btn" data-example="text">Text</button>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <div class="canvas-box">
+                    <h3>Draw Here</h3>
+                    <canvas id="draw-canvas" width="512" height="512"></canvas>
+                    <p style="margin-top: 0.5rem; color: #666;">Click and drag to draw</p>
+                </div>
+
+                <div class="canvas-box result-output">
+                    <h3>JPEG Output</h3>
+                    <img id="output-img" alt="Encoded JPEG will appear here" style="display: none;">
+                    <div id="placeholder" style="border: 2px dashed #ddd; height: 512px; display: flex; align-items: center; justify-content: center; color: #999; border-radius: 4px;">
+                        Click "Encode to JPEG" to see result
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats" id="stats" style="display: none;">
+                <p><strong>Encoding Time:</strong> <span id="encode-time">-</span></p>
+                <p><strong>Input Size:</strong> <span id="input-size">-</span></p>
+                <p><strong>Output Size:</strong> <span id="output-size">-</span></p>
+                <p><strong>Compression Ratio:</strong> <span id="compression-ratio">-</span></p>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2>About</h2>
+            <p>This JPEG encoder is compiled from Rust to WebAssembly using <code>wasm-bindgen</code>. It demonstrates:</p>
+            <ul style="margin: 1rem 0; padding-left: 2rem;">
+                <li>Real-time image encoding in the browser</li>
+                <li>Zero server-side processing - everything runs locally</li>
+                <li>Adjustable quality settings</li>
+                <li>Support for RGB, RGBA, and grayscale images</li>
+                <li>Streaming encoder for large images</li>
+            </ul>
+
+            <p style="margin-top: 1rem;"><strong>Learn more:</strong> <a href="https://github.com/jburnhams/jpeg-encoder" style="color: #3498db;">View on GitHub</a></p>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

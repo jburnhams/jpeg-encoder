@@ -13,21 +13,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
+
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli
-      - name: Install Binaryen
-        run: sudo apt-get update && sudo apt-get install -y binaryen
-      - name: Build wasm target
-        run: cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown
-      - name: Generate bindings
-        run: wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir pkg --target bundler --typescript --out-name jpeg_encoder
-      - name: Optimize wasm module
-        run: wasm-opt -Oz pkg/jpeg_encoder_bg.wasm -o pkg/jpeg_encoder_bg.wasm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build WASM
+        run: npm run build
+
+      - name: Run integration tests
+        run: npm test
+
+      - name: Run browser tests
+        run: npm run test:browser
+
+      - name: Run example
+        run: npm run example
+
       - name: Commit updated bindings
         if: github.event_name == 'push'
         env:

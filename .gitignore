@@ -1,2 +1,8 @@
 /target
-Cargo.lock
+Cargo.lockoutput-*.jpg
+debug.js
+/verify-streaming.js
+
+node_modules/
+package-lock.json
+docs/dist/
