@@ -2,9 +2,9 @@
   "name": "jpeg-encoder-wasm",
   "version": "0.1.0",
   "description": "WebAssembly JPEG encoder",
-  "main": "pkg/jpeg_encoder_bg.js",
-  "module": "pkg/jpeg_encoder.js",
-  "types": "pkg/jpeg_encoder.d.ts",
+  "main": "pkg/index.js",
+  "module": "pkg/index.js",
+  "types": "pkg/index.d.ts",
   "files": [
     "pkg"
   ],

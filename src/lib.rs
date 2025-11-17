@@ -254,6 +254,79 @@ mod tests {
     }
 
     #[test]
+    fn test_rgb_strip_encoder_large_strip_height() {
+        let (data, width, height) = create_test_img_rgb();
+
+        let mut expected = Vec::new();
+        let mut full_image_encoder = Encoder::new(&mut expected, 80);
+        full_image_encoder.set_sampling_factor(SamplingFactor::F_1_1);
+        full_image_encoder
+            .encode(&data, width, height, ColorType::Rgb)
+            .unwrap();
+
+        let mut streaming_encoder = Encoder::new(Vec::new(), 80);
+        streaming_encoder.set_sampling_factor(SamplingFactor::F_1_1);
+        let mut strip_encoder = streaming_encoder
+            .into_strip_encoder(width, height, ColorType::Rgb)
+            .unwrap();
+
+        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
+        let strip_height = 24;
+
+        for chunk in data.chunks(row_stride * strip_height) {
+            strip_encoder.encode_strip(chunk).unwrap();
+        }
+
+        let result = strip_encoder.finish().unwrap();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_rgb_strip_encoder_pads_final_partial_strip() {
+        let width = 16u16;
+        let height = 19u16;
+        let mut data = Vec::with_capacity(width as usize * height as usize * 3);
+
+        for y in 0..height {
+            for x in 0..width {
+                let x = x as u8;
+                let y = y as u8;
+                data.push(x);
+                data.push(y);
+                data.push(x.wrapping_add(y));
+            }
+        }
+
+        let mut expected = Vec::new();
+        let mut full_image_encoder = Encoder::new(&mut expected, 90);
+        full_image_encoder.set_sampling_factor(SamplingFactor::F_1_1);
+        full_image_encoder
+            .encode(&data, width, height, ColorType::Rgb)
+            .unwrap();
+
+        let mut streaming_encoder = Encoder::new(Vec::new(), 90);
+        streaming_encoder.set_sampling_factor(SamplingFactor::F_1_1);
+        let mut strip_encoder = streaming_encoder
+            .into_strip_encoder(width, height, ColorType::Rgb)
+            .unwrap();
+
+        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
+        let strip_heights = [8usize, 8, 3];
+        let mut offset = 0;
+
+        for &height in &strip_heights {
+            let end = offset + row_stride * height;
+            strip_encoder.encode_strip(&data[offset..end]).unwrap();
+            offset = end;
+        }
+
+        let result = strip_encoder.finish().unwrap();
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
     fn test_gray_strip_encoder_matches() {
         let (data, width, height) = create_test_img_gray();
 
