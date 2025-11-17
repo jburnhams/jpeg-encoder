@@ -17,7 +17,7 @@ npm install jpeg-encoder-wasm
 ### Node.js
 
 ```js
-import { init, StreamingJpegEncoder, WasmColorType } from "jpeg-encoder-wasm/pkg/index.js";
+import init, { StreamingJpegEncoder, WasmColorType } from "jpeg-encoder-wasm/pkg/index.js";
 
 async function encode() {
   await init();
@@ -69,7 +69,7 @@ Serve the `pkg/` directory over HTTP (fetching wasm from `file://` URLs is block
   <body>
     <img id="preview" alt="JPEG preview" />
     <script type="module">
-      import { init, StreamingJpegEncoder, WasmColorType } from "./index.js";
+      import init, { StreamingJpegEncoder, WasmColorType } from "./index.js";
 
       async function render() {
         await init();
@@ -119,7 +119,7 @@ Serve the `pkg/` directory over HTTP (fetching wasm from `file://` URLs is block
 
 ## API
 
-- `init(module?)`: load the WebAssembly module. Call this once before constructing an encoder. The optional `module` argument is forwarded to the underlying wasm-bindgen loader.
+- `init(module?)`: load the WebAssembly module. Call this once before constructing an encoder. The optional `module` argument is forwarded to the underlying wasm-bindgen loader. A default export is also provided for compatibility with the original wasm-bindgen entrypoint.
 - `StreamingJpegEncoder`: create an encoder with `(width, height, colorType, quality)`, feed image data with `encode_strip`, and finish with `finish`. Static helpers like `header_bytes` or `footer_bytes` are intentionally hidden in this wrapper.
   - `encode_strip(data)` writes one or more complete rows (the data length must be a multiple of `width * bytesPerPixel`) and returns any newly produced JPEG bytes while clearing the internal buffer.
   - `finish()` finalizes the file, validates that all rows were provided, frees the wasm allocations, and returns the remaining JPEG bytes. No extra `free()` call is required after this.

@@ -10,6 +10,9 @@ export async function init(module) {
     await initWasm(module);
 }
 
+// Maintain compatibility with the wasm-bindgen generated default export.
+export default init;
+
 /**
  * Thin wrapper around the wasm-bindgen generated encoder that hides
  * implementation details and static helpers that consumers should not call.

@@ -7,6 +7,10 @@ import initWasm, { StreamingJpegEncoder as _RawStreamingJpegEncoder, WasmColorTy
  * By default it loads the bundled `jpeg_encoder_bg.wasm` next to this file.
  */
 export function init(module?: Parameters<typeof initWasm>[0]): Promise<void>;
+/**
+ * Default export kept for compatibility with the upstream wasm-bindgen entrypoint.
+ */
+export default function init(module?: Parameters<typeof initWasm>[0]): Promise<void>;
 
 /**
  * Thin wrapper around the wasm-bindgen generated encoder that hides

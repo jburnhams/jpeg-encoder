@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { init, StreamingJpegEncoder, WasmColorType } from "./index.js";
+import init, { StreamingJpegEncoder, WasmColorType } from "./index.js";
 
 async function main() {
   await init();
