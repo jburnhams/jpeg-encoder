@@ -1,5 +1,6 @@
 /target
-Cargo.lockoutput-*.jpg
+Cargo.lock
+output-*.jpg
 debug.js
 /verify-streaming.js
 
