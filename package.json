@@ -21,6 +21,7 @@
   "files": [
     "pkg"
   ],
+  "type": "module",
   "scripts": {
     "build": "npm run build:wasm && npm run build:bindings",
     "build:wasm": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown",
