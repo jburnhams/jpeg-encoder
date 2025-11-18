@@ -1,12 +1,9 @@
 # jpeg-encoder-wasm
 
 This package provides a WebAssembly-powered JPEG encoder that can be used from JavaScript.
-The curated entrypoint exports only the encoder wrapper and color type enum to keep the API small and focused.
+Supports both ESM and CommonJS module formats.
 
 ## Installation
-
-The package is published as `jpeg-encoder-wasm`.
-After installing, the WebAssembly module bundled in the `pkg/` directory will be loaded automatically.
 
 ```bash
 npm install jpeg-encoder-wasm
@@ -14,121 +11,119 @@ npm install jpeg-encoder-wasm
 
 ## Usage
 
-### Node.js
+### ES Modules (Node.js, modern bundlers)
 
 ```js
-import init, { StreamingJpegEncoder, WasmColorType } from "jpeg-encoder-wasm/pkg/index.js";
+import init, { StreamingJpegEncoder, WasmColorType } from "jpeg-encoder-wasm";
 
 async function encode() {
+  // Initialize the WASM module
   await init();
 
   const width = 320;
   const height = 240;
   const quality = 90;
-  const stripHeight = 16; // multiple of the 8-row MCU height used for RGB/YCbCr data
 
   const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, quality);
-  const chunks = [];
 
-  for (let y = 0; y < height; y += stripHeight) {
-    const h = Math.min(stripHeight, height - y);
-    const strip = new Uint8Array(width * h * 3);
+  // Create image data (RGB format)
+  const pixels = new Uint8Array(width * height * 3);
+  // ... fill pixels ...
 
-    // Fill the strip with a simple gradient.
-    for (let row = 0; row < h; row++) {
-      for (let x = 0; x < width; x++) {
-        const idx = (row * width + x) * 3;
-        strip[idx] = (x / width) * 255; // R ramp left → right
-        strip[idx + 1] = (y / height) * 255; // G ramp top → bottom
-        strip[idx + 2] = 180; // constant blue
-      }
-    }
+  const chunk1 = encoder.encode_strip(pixels);
+  const chunk2 = encoder.finish();
 
-    const flushed = encoder.encode_strip(strip);
-    if (flushed.length) chunks.push(flushed);
-  }
+  // Combine chunks into final JPEG
+  const jpegData = new Uint8Array(chunk1.length + chunk2.length);
+  jpegData.set(chunk1, 0);
+  jpegData.set(chunk2, chunk1.length);
 
-  chunks.push(encoder.finish());
-
-  return Buffer.concat(chunks.map((c) => Buffer.from(c)));
+  return jpegData;
 }
-
-encode().then((buffer) => {
-  console.log("Wrote JPEG", buffer.length, "bytes");
-});
 ```
 
-### Web
+### CommonJS (Node.js)
 
-The default `init()` loader works in browsers as long as the wasm file sits next to `index.js`.
-Serve the `pkg/` directory over HTTP (fetching wasm from `file://` URLs is blocked by many browsers) and import the module normally:
+```js
+const { init, StreamingJpegEncoder, WasmColorType } = require("jpeg-encoder-wasm");
+const { readFileSync } = require("fs");
 
-```html
-<!doctype html>
-<html>
-  <body>
-    <img id="preview" alt="JPEG preview" />
-    <script type="module">
-      import init, { StreamingJpegEncoder, WasmColorType } from "./index.js";
+async function encode() {
+  // Initialize with WASM file (required in Node.js CommonJS)
+  const wasmPath = require.resolve("jpeg-encoder-wasm/pkg/cjs/jpeg_encoder_bg.wasm");
+  await init(readFileSync(wasmPath));
 
-      async function render() {
-        await init();
+  const width = 320;
+  const height = 240;
+  const quality = 90;
 
-        const width = 320;
-        const height = 240;
-        const stripHeight = 16; // multiple of the encoder's 8-row MCU height for RGB/YCbCr
-        const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, 90);
+  const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, quality);
 
-        const chunks = [];
-        for (let y = 0; y < height; y += stripHeight) {
-          const h = Math.min(stripHeight, height - y);
-          const strip = new Uint8Array(width * h * 3);
+  // Create image data
+  const pixels = new Uint8Array(width * height * 3);
+  // ... fill pixels ...
 
-          for (let row = 0; row < h; row++) {
-            for (let x = 0; x < width; x++) {
-              const idx = (row * width + x) * 3;
-              strip[idx] = (x / width) * 255;
-              strip[idx + 1] = ((y + row) / height) * 255;
-              strip[idx + 2] = 200;
-            }
-          }
+  const chunk1 = encoder.encode_strip(pixels);
+  const chunk2 = encoder.finish();
 
-          const chunk = encoder.encode_strip(strip);
-          if (chunk.length) chunks.push(chunk);
-        }
-
-        const jpegBytes = encoder.finish();
-        chunks.push(jpegBytes);
-
-        const merged = new Uint8Array(chunks.reduce((sum, c) => sum + c.length, 0));
-        let offset = 0;
-        for (const chunk of chunks) {
-          merged.set(chunk, offset);
-          offset += chunk.length;
-        }
-
-        const blobUrl = URL.createObjectURL(new Blob([merged], { type: "image/jpeg" }));
-        document.getElementById("preview").src = blobUrl;
-      }
-
-      render().catch(console.error);
-    </script>
-  </body>
-</html>
+  return Buffer.concat([chunk1, chunk2]);
+}
 ```
 
 ## API
 
-- `init(module?)`: load the WebAssembly module. Call this once before constructing an encoder. The optional `module` argument is forwarded to the underlying wasm-bindgen loader. A default export is also provided for compatibility with the original wasm-bindgen entrypoint.
-- `StreamingJpegEncoder`: create an encoder with `(width, height, colorType, quality)`, feed image data with `encode_strip`, and finish with `finish`. Static helpers like `header_bytes` or `footer_bytes` are intentionally hidden in this wrapper.
-  - `encode_strip(data)` writes one or more complete rows (the data length must be a multiple of `width * bytesPerPixel`) and returns any newly produced JPEG bytes while clearing the internal buffer.
-  - `finish()` finalizes the file, validates that all rows were provided, frees the wasm allocations, and returns the remaining JPEG bytes. No extra `free()` call is required after this.
-  - `free()` releases the underlying wasm allocations early if you abort before calling `finish()`.
-- `WasmColorType`: enum describing the pixel format of the input data.
+### `init(module?): Promise<void>`
 
-When streaming, keep strip heights aligned to the encoder's MCU height so that rows are flushed efficiently. The encoder processes rows in groups of `8 * maxVerticalSampling` (8 rows for grayscale/RGB data, 16 rows when chroma subsampling doubles the vertical sampling), so using multiples of 8–16 rows per strip avoids extra padding while keeping memory bounded. Each strip can be any height up to the remaining rows as long as its byte length is a multiple of the row stride.
+Initialize the WebAssembly module. Must be called before creating encoders.
 
-## Example scripts
+- **module** (optional): WebAssembly module or bytes. Auto-loaded in ESM, required in CommonJS.
 
-- [`pkg/example.js`](./example.js): runnable Node.js example that writes an output JPEG to disk (`node pkg/example.js`).
-- [`pkg/example-web.html`](./example-web.html): browser example. Serve the `pkg/` directory (for example, `npx serve pkg`) and open the HTML file in your browser.
+### `class StreamingJpegEncoder`
+
+#### `constructor(width, height, colorType, quality)`
+
+Create a new JPEG encoder.
+
+- **width**: Image width in pixels
+- **height**: Image height in pixels
+- **colorType**: Color format (see `WasmColorType`)
+- **quality**: JPEG quality (1-100)
+
+#### `encode_strip(data: Uint8Array): Uint8Array`
+
+Encode one or more complete rows. Returns any newly produced JPEG bytes.
+
+#### `finish(): Uint8Array`
+
+Finalize the JPEG and return remaining bytes. Frees resources automatically.
+
+#### `free(): void`
+
+Manually free resources (unnecessary after `finish()`).
+
+#### Static Methods
+
+- `StreamingJpegEncoder.header_bytes(width, height, colorType, quality): Uint8Array`
+- `StreamingJpegEncoder.footer_bytes(): Uint8Array`
+
+### `WasmColorType`
+
+Enum of supported color formats:
+
+- `WasmColorType.Rgb` - 3 bytes per pixel (R, G, B)
+- `WasmColorType.Rgba` - 4 bytes per pixel (R, G, B, A)
+- `WasmColorType.Luma` - 1 byte per pixel (grayscale)
+- `WasmColorType.Cmyk` - 4 bytes per pixel (C, M, Y, K)
+
+## Module Format Support
+
+This package supports both module formats:
+
+- **ESM**: Use `import` statements (recommended for modern projects)
+- **CommonJS**: Use `require()` (for compatibility with older Node.js projects)
+
+The appropriate format is automatically selected based on your project's module system.
+
+## License
+
+See LICENSE file in the repository.

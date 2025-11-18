@@ -2,17 +2,33 @@
   "name": "jpeg-encoder-wasm",
   "version": "0.1.0",
   "description": "WebAssembly JPEG encoder",
-  "main": "pkg/index.js",
-  "module": "pkg/index.js",
-  "types": "pkg/index.d.ts",
+  "main": "./pkg/cjs/index.cjs",
+  "module": "./pkg/esm/index.js",
+  "types": "./pkg/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./pkg/index.d.ts",
+        "default": "./pkg/esm/index.js"
+      },
+      "require": {
+        "types": "./pkg/index.d.ts",
+        "default": "./pkg/cjs/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "pkg"
   ],
-  "type": "module",
   "scripts": {
-    "build": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown && wasm-bindgen target/wasm32-unknown-unknown/release/jpeg_encoder_wasm.wasm --out-dir pkg --target web --typescript --out-name jpeg_encoder",
-    "prepare:docs": "mkdir docs/dist && cp -r pkg/* docs/dist/",
-    "test": "node test/integration.test.js",
+    "build": "npm run build:wasm && npm run build:bindings",
+    "build:wasm": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown",
+    "build:bindings": "node scripts/build-bindings.js",
+    "prepare:docs": "mkdir -p docs/dist && cp -r pkg/esm/* docs/dist/",
+    "test": "npm run test:esm && npm run test:cjs",
+    "test:esm": "node test/integration.test.js",
+    "test:cjs": "node test/integration-cjs.test.cjs",
     "test:browser": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js",
     "test:all": "npm test && npm run test:browser",
     "example": "node examples/encode.js"

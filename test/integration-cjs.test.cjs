@@ -1,15 +1,14 @@
-import init, { StreamingJpegEncoder, WasmColorType } from '../pkg/esm/jpeg_encoder.js';
-import { strict as assert } from 'assert';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+"use strict";
 
-// Initialize WASM module (required for web target)
-// In Node, we need to pass the WASM bytes directly since fetch() doesn't work with file:// URLs
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const wasmBytes = readFileSync(join(__dirname, '../pkg/esm/jpeg_encoder_bg.wasm'));
-await init(wasmBytes);
+/**
+ * CommonJS Integration Tests for JPEG Encoder WASM
+ *
+ * This test suite validates that the CommonJS build works correctly.
+ * It mirrors the ESM integration tests but uses require() instead of import.
+ */
+
+const { init, StreamingJpegEncoder, WasmColorType } = require('../pkg/cjs/index.cjs');
+const assert = require('assert').strict;
 
 /**
  * Creates a simple solid color image
@@ -77,9 +76,12 @@ function test(name, fn) {
     }
 }
 
-function main() {
-    console.log('JPEG Encoder WASM Integration Tests');
-    console.log('====================================\n');
+async function main() {
+    console.log('JPEG Encoder WASM CommonJS Integration Tests');
+    console.log('=============================================\n');
+
+    // Initialize WASM module (auto-loaded in CommonJS/nodejs target, but call for API compatibility)
+    await init();
 
     let passed = 0;
     let failed = 0;
@@ -178,7 +180,7 @@ function main() {
         failed++;
     }
 
-    // Test 5: Small image (1x1)
+    // Test 5: Minimum size image (1x1)
     if (test('Minimum size image (1x1)', () => {
         const pixels = new Uint8Array([255, 0, 0]);
 
@@ -195,36 +197,28 @@ function main() {
         failed++;
     }
 
-    // Test 6: Larger image
-    if (test('Larger image encoding (512x512)', () => {
-        const width = 512;
-        const height = 512;
-        const pixels = new Uint8Array(width * height * 3);
+    // Test 6: Static header and footer methods
+    if (test('Static header and footer bytes methods', () => {
+        const header = StreamingJpegEncoder.header_bytes(100, 100, WasmColorType.Rgb, 85);
+        const footer = StreamingJpegEncoder.footer_bytes();
 
-        // Create a pattern
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = (y * width + x) * 3;
-                pixels[idx] = (x / width) * 255;
-                pixels[idx + 1] = (y / height) * 255;
-                pixels[idx + 2] = ((x + y) / (width + height)) * 255;
-            }
-        }
+        assert(header.length > 0, 'Header should not be empty');
+        assert(footer.length > 0, 'Footer should not be empty');
 
-        const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, 85);
-        const chunk1 = encoder.encode_strip(pixels);
-        const chunk2 = encoder.finish();
-        const jpegData = concatUint8Arrays(chunk1, chunk2);
+        // Check header starts with SOI marker
+        assert.equal(header[0], 0xFF, 'Header should start with 0xFF');
+        assert.equal(header[1], 0xD8, 'Header should start with SOI marker');
 
-        assert(jpegData.length > 0, 'JPEG data should not be empty');
-        validateJpeg(jpegData);
+        // Check footer is EOI marker
+        assert.equal(footer[0], 0xFF, 'Footer should be 0xFF');
+        assert.equal(footer[1], 0xD9, 'Footer should be EOI marker');
     })) {
         passed++;
     } else {
         failed++;
     }
 
-    // Test 7: RGBA encoding (with alpha channel)
+    // Test 7: RGBA encoding
     if (test('RGBA encoding', () => {
         const width = 64;
         const height = 64;
@@ -250,99 +244,43 @@ function main() {
         failed++;
     }
 
-    // Test 8: Header and footer bytes
-    if (test('Static header and footer bytes methods', () => {
-        const header = StreamingJpegEncoder.header_bytes(100, 100, WasmColorType.Rgb, 85);
-        const footer = StreamingJpegEncoder.footer_bytes();
+    // Test 8: CommonJS module exports
+    if (test('CommonJS module exports are correct', () => {
+        assert.equal(typeof init, 'function', 'init should be exported as a function');
+        assert.equal(typeof StreamingJpegEncoder, 'function', 'StreamingJpegEncoder should be exported as a function');
+        assert.equal(typeof WasmColorType, 'object', 'WasmColorType should be exported as an object');
 
-        assert(header.length > 0, 'Header should not be empty');
-        assert(footer.length > 0, 'Footer should not be empty');
-
-        // Check header starts with SOI marker
-        assert.equal(header[0], 0xFF, 'Header should start with 0xFF');
-        assert.equal(header[1], 0xD8, 'Header should start with SOI marker');
-
-        // Check footer is EOI marker
-        assert.equal(footer[0], 0xFF, 'Footer should be 0xFF');
-        assert.equal(footer[1], 0xD9, 'Footer should be EOI marker');
+        // Check WasmColorType enum values
+        assert.equal(typeof WasmColorType.Rgb, 'number', 'WasmColorType.Rgb should be a number');
+        assert.equal(typeof WasmColorType.Luma, 'number', 'WasmColorType.Luma should be a number');
+        assert.equal(typeof WasmColorType.Rgba, 'number', 'WasmColorType.Rgba should be a number');
     })) {
         passed++;
     } else {
         failed++;
     }
 
-    // Test 9: Verify streaming behavior with incremental data collection
-    if (test('Streaming encoder returns data incrementally', () => {
-        const width = 32;
-        const height = 32;
-        const pixels = createSolidImage(width, height, 100, 150, 200);
-
-        const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, 85);
-
-        // The encoder returns data chunks that need to be concatenated
-        const chunk1 = encoder.encode_strip(pixels);
-        assert(chunk1.length > 0, 'First chunk should contain header and encoded data');
-
-        const chunk2 = encoder.finish();
-        assert(chunk2.length > 0, 'Final chunk should contain remaining encoded data');
-
-        const jpegData = concatUint8Arrays(chunk1, chunk2);
-        validateJpeg(jpegData);
+    // Test 9: Verify default export
+    if (test('CommonJS default export works', () => {
+        const defaultInit = require('../pkg/cjs/index.cjs').default;
+        assert.equal(typeof defaultInit, 'function', 'default export should be the init function');
     })) {
         passed++;
     } else {
         failed++;
     }
 
-    // Test 10: Verify header only in first strip
-    if (test('Header only appears in first strip', () => {
-        const width = 64;
-        const height = 64;
-        const stripHeight = 16;
-
-        const encoder = new StreamingJpegEncoder(width, height, WasmColorType.Rgb, 85);
-
-        const chunks = [];
-        for (let i = 0; i < 4; i++) {
-            const strip = createSolidImage(width, stripHeight, i * 60, 128, 255 - i * 60);
-            const chunk = encoder.encode_strip(strip);
-            chunks.push(chunk);
-
-            // Check for JPEG SOI marker (0xFF 0xD8)
-            const hasSOI = chunk[0] === 0xFF && chunk[1] === 0xD8;
-
-            if (i === 0) {
-                assert(hasSOI, 'First strip should contain JPEG header (SOI marker)');
-                assert(chunk.length > 500, 'First strip should be large (contains headers)');
-            } else {
-                assert(!hasSOI, `Strip ${i + 1} should not contain JPEG header`);
-                assert(chunk.length < 100, `Strip ${i + 1} should be small (no headers)`);
-            }
-        }
-
-        const finalChunk = encoder.finish();
-        chunks.push(finalChunk);
-
-        // Verify EOI marker in final chunk
-        assert.equal(finalChunk[finalChunk.length - 2], 0xFF, 'Final chunk should end with 0xFF');
-        assert.equal(finalChunk[finalChunk.length - 1], 0xD9, 'Final chunk should end with EOI marker');
-
-        const jpegData = concatUint8Arrays(...chunks);
-        validateJpeg(jpegData);
-    })) {
-        passed++;
-    } else {
-        failed++;
-    }
-
-    console.log('\n====================================');
+    console.log('\n=============================================');
     console.log(`Tests passed: ${passed}`);
     console.log(`Tests failed: ${failed}`);
-    console.log('====================================');
+    console.log('=============================================');
 
     if (failed > 0) {
         process.exit(1);
     }
 }
 
-main();
+main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+});
