@@ -1,6 +1,6 @@
-// Re-export types from the generated ESM bindings
-export { WasmColorType, StreamingJpegEncoder } from './esm/jpeg_encoder.js';
-export type { InitInput, InitOutput } from './esm/jpeg_encoder.js';
+// Re-export everything from the generated bindings
+export { WasmColorType, StreamingJpegEncoder } from './jpeg_encoder.js';
+export type { InitInput, InitOutput } from './jpeg_encoder.js';
 
 /**
  * Initialize the underlying WebAssembly module.
@@ -11,5 +11,5 @@ export type { InitInput, InitOutput } from './esm/jpeg_encoder.js';
  * @param module - Optional WebAssembly module or bytes to initialize with
  * @returns Promise that resolves when initialization is complete
  */
-export function init(module?: import('./esm/jpeg_encoder.js').InitInput | Promise<import('./esm/jpeg_encoder.js').InitInput>): Promise<void>;
+export function init(module?: import('./jpeg_encoder.js').InitInput | Promise<import('./jpeg_encoder.js').InitInput>): Promise<void>;
 export default init;

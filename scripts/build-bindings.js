@@ -131,6 +131,27 @@ export { WasmColorType };
 
 writeFileSync(join(pkgDir, 'esm', 'index.js'), esmWrapper);
 
+// Create TypeScript definitions for ESM wrapper
+console.log('Creating ESM wrapper TypeScript definitions...');
+const esmIndexDts = `// Re-export everything from the generated bindings
+export { WasmColorType, StreamingJpegEncoder } from './jpeg_encoder.js';
+export type { InitInput, InitOutput } from './jpeg_encoder.js';
+
+/**
+ * Initialize the underlying WebAssembly module.
+ *
+ * This must be awaited before constructing a {@link StreamingJpegEncoder}.
+ * By default it loads the bundled \`jpeg_encoder_bg.wasm\` next to this file.
+ *
+ * @param module - Optional WebAssembly module or bytes to initialize with
+ * @returns Promise that resolves when initialization is complete
+ */
+export function init(module?: import('./jpeg_encoder.js').InitInput | Promise<import('./jpeg_encoder.js').InitInput>): Promise<void>;
+export default init;
+`;
+
+writeFileSync(join(pkgDir, 'esm', 'index.d.ts'), esmIndexDts);
+
 // Create CommonJS wrapper (index.cjs in pkg/cjs)
 console.log('Creating CommonJS wrapper...');
 const cjsWrapper = `"use strict";
@@ -229,68 +250,43 @@ module.exports.WasmColorType = WasmColorType;
 
 writeFileSync(join(pkgDir, 'cjs', 'index.cjs'), cjsWrapper);
 
+// Create TypeScript definitions for CJS wrapper
+console.log('Creating CJS wrapper TypeScript definitions...');
+const cjsIndexDts = `// Re-export types from the generated bindings
+export { WasmColorType, StreamingJpegEncoder } from './jpeg_encoder.js';
+
+/**
+ * Initialize the underlying WebAssembly module.
+ *
+ * For the CommonJS build using nodejs target, the WASM module is automatically
+ * loaded. This function exists for API compatibility with the ESM build.
+ *
+ * @param wasmBytes - Optional WASM bytes (unused in nodejs target)
+ * @returns Promise that resolves when initialization is complete
+ */
+export function init(wasmBytes?: Buffer | Uint8Array): Promise<void>;
+export default init;
+`;
+
+writeFileSync(join(pkgDir, 'cjs', 'index.d.ts'), cjsIndexDts);
+
 // Create TypeScript definitions for the wrapper
 console.log('Creating TypeScript definitions...');
-const indexDts = `import type { InitInput } from './esm/jpeg_encoder.js';
+const indexDts = `// Re-export types from the generated ESM bindings
+export { WasmColorType, StreamingJpegEncoder } from './esm/jpeg_encoder.js';
+export type { InitInput, InitOutput } from './esm/jpeg_encoder.js';
 
 /**
  * Initialize the underlying WebAssembly module.
  *
  * This must be awaited before constructing a {@link StreamingJpegEncoder}.
  * By default it loads the bundled \`jpeg_encoder_bg.wasm\` next to this file.
+ *
+ * @param module - Optional WebAssembly module or bytes to initialize with
+ * @returns Promise that resolves when initialization is complete
  */
-export function init(module?: InitInput | Promise<InitInput>): Promise<void>;
+export function init(module?: import('./esm/jpeg_encoder.js').InitInput | Promise<import('./esm/jpeg_encoder.js').InitInput>): Promise<void>;
 export default init;
-
-/**
- * Color type for the JPEG encoder.
- */
-export enum WasmColorType {
-  Rgb = 0,
-  Luma = 1,
-  Rgba = 2,
-  Cmyk = 3,
-}
-
-/**
- * Thin wrapper around the wasm-bindgen generated encoder that hides
- * implementation details and static helpers that consumers should not call.
- */
-export class StreamingJpegEncoder {
-  constructor(width: number, height: number, color_type: WasmColorType, quality: number);
-
-  /**
-   * Encode one or more complete rows. The return value contains any newly
-   * produced JPEG bytes and clears the internal buffer.
-   */
-  encode_strip(data: Uint8Array): Uint8Array;
-
-  /**
-   * Finalize the JPEG, free the underlying wasm allocations, and return any
-   * remaining bytes. All rows must have been provided before calling this.
-   */
-  finish(): Uint8Array;
-
-  /**
-   * Free the underlying wasm allocations. Calling this after \`finish()\` is
-   * unnecessary because \`finish()\` already releases the resources.
-   */
-  free(): void;
-
-  /**
-   * Get JPEG header bytes without creating an encoder instance.
-   * This is a static method for advanced use cases.
-   */
-  static header_bytes(width: number, height: number, color_type: WasmColorType, quality: number): Uint8Array;
-
-  /**
-   * Get JPEG footer bytes.
-   * This is a static method for advanced use cases.
-   */
-  static footer_bytes(): Uint8Array;
-}
-
-export { WasmColorType };
 `;
 
 writeFileSync(join(pkgDir, 'index.d.ts'), indexDts);
