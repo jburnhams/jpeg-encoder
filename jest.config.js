@@ -4,4 +4,7 @@ export default {
   transform: {},
   testPathIgnorePatterns: ['/node_modules/', '/pkg/'],
   setupFiles: ['<rootDir>/jest.setup.js'],
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
 };

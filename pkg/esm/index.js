@@ -63,6 +63,22 @@ export class StreamingJpegEncoder {
         this.#inner.free();
         this.#inner = null;
     }
+
+    /**
+     * Get JPEG header bytes without creating an encoder instance.
+     * This is a static method for advanced use cases.
+     */
+    static header_bytes(width, height, color_type, quality) {
+        return RawStreamingJpegEncoder.header_bytes(width, height, color_type, quality);
+    }
+
+    /**
+     * Get JPEG footer bytes.
+     * This is a static method for advanced use cases.
+     */
+    static footer_bytes() {
+        return RawStreamingJpegEncoder.footer_bytes();
+    }
 }
 
 export { WasmColorType };
