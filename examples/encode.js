@@ -1,14 +1,8 @@
-import init, { StreamingJpegEncoder, WasmColorType } from '../pkg/esm/jpeg_encoder.js';
-import { readFileSync, writeFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import init, { StreamingJpegEncoder, WasmColorType } from 'jpeg-encoder-wasm';
+import { writeFileSync } from 'node:fs';
 
-// Initialize WASM module (required for web target)
-// In Node, we need to pass the WASM bytes directly since fetch() doesn't work with file:// URLs
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const wasmBytes = readFileSync(join(__dirname, '../pkg/esm/jpeg_encoder_bg.wasm'));
-await init(wasmBytes);
+// Loads the bundled .wasm file (in Node and in browsers)
+await init();
 
 /**
  * Creates a simple test image with RGB gradient

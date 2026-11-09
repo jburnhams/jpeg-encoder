@@ -1,16 +1,17 @@
 [package]
 name = "jpeg-encoder"
-version = "0.6.1"
+version = "0.8.0"
 authors = ["Volker Ströbel <volkerstroebel@mysurdity.de>"]
-edition = "2021"
+edition = "2024"
 license = "(MIT OR Apache-2.0) AND IJG"
 description = "JPEG encoder"
 categories = ["multimedia::images"]
 keywords = ["jpg", "jpeg", "encoder", "image"]
 readme = "README.md"
 repository = "https://github.com/vstroebel/jpeg-encoder"
-rust-version = "1.61"
+rust-version = "1.89"
 
+# Fork addition: the npm package is built from the wasm-bindings crate
 [workspace]
 members = [".", "wasm-bindings"]
 resolver = "2"
@@ -19,15 +20,14 @@ resolver = "2"
 default = ["std"]
 simd = ["std"]
 std = []
-wasm-bindgen = ["dep:wasm-bindgen", "dep:js-sys", "dep:wee_alloc"]
+use_wide = ["wide", "bytemuck"]
 
 # DO NOT USE THIS IN PRODUCTION. Expose several internal functions for benchmark purposes.
 benchmark = []
 
 [dependencies]
-wasm-bindgen = { version = "0.2", optional = true }
-js-sys = { version = "0.3", optional = true }
-wee_alloc = { version = "0.4", optional = true }
+wide = { version = "1.0", optional = true, default-features = false }
+bytemuck = { version = "1.24", optional = true, default-features = false }
 
 [dev-dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }
@@ -35,7 +35,9 @@ jpeg-decoder = { version = "0.3", default-features = false }
 [profile.dev]
 opt-level = 1
 
-[profile.release]
+# Fork addition: size-optimized profile for the WebAssembly build (npm run build:wasm)
+[profile.wasm-release]
+inherits = "release"
 opt-level = "z"
 lto = true
 codegen-units = 1

@@ -1,4 +1,4 @@
-import init, { StreamingJpegEncoder, WasmColorType } from './dist/jpeg_encoder.js';
+import init, { StreamingJpegEncoder, WasmColorType } from './dist/index.js';
 
 // Initialize WASM module
 await init();

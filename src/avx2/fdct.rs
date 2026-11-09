@@ -11,19 +11,21 @@
 use core::arch::x86::{
     __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_loadu_si256, _mm256_madd_epi16,
     _mm256_packs_epi32, _mm256_permute2x128_si256, _mm256_permute4x64_epi64, _mm256_set_epi16,
-    _mm256_set_epi32, _mm256_sign_epi16, _mm256_slli_epi16, _mm256_srai_epi16, _mm256_srai_epi32,
-    _mm256_storeu_si256, _mm256_sub_epi16, _mm256_unpackhi_epi16, _mm256_unpackhi_epi32,
-    _mm256_unpacklo_epi16, _mm256_unpacklo_epi32,
+    _mm256_set_epi32, _mm256_set1_epi16, _mm256_sign_epi16, _mm256_slli_epi16, _mm256_srai_epi16,
+    _mm256_srai_epi32, _mm256_storeu_si256, _mm256_sub_epi16, _mm256_unpackhi_epi16,
+    _mm256_unpackhi_epi32, _mm256_unpacklo_epi16, _mm256_unpacklo_epi32,
 };
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::{
     __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_loadu_si256, _mm256_madd_epi16,
     _mm256_packs_epi32, _mm256_permute2x128_si256, _mm256_permute4x64_epi64, _mm256_set_epi16,
-    _mm256_set_epi32, _mm256_sign_epi16, _mm256_slli_epi16, _mm256_srai_epi16, _mm256_srai_epi32,
-    _mm256_storeu_si256, _mm256_sub_epi16, _mm256_unpackhi_epi16, _mm256_unpackhi_epi32,
-    _mm256_unpacklo_epi16, _mm256_unpacklo_epi32,
+    _mm256_set_epi32, _mm256_set1_epi16, _mm256_sign_epi16, _mm256_slli_epi16, _mm256_srai_epi16,
+    _mm256_srai_epi32, _mm256_storeu_si256, _mm256_sub_epi16, _mm256_unpackhi_epi16,
+    _mm256_unpackhi_epi32, _mm256_unpacklo_epi16, _mm256_unpacklo_epi32,
 };
+
+use crate::encoder::AlignedBlock;
 
 const CONST_BITS: i32 = 13;
 const PASS1_BITS: i32 = 2;
@@ -57,17 +59,18 @@ const DESCALE_P1: i32 = CONST_BITS - PASS1_BITS;
 const DESCALE_P2: i32 = CONST_BITS + PASS1_BITS;
 
 #[inline(always)]
-pub fn fdct_avx2(data: &mut [i16; 64]) {
+pub fn fdct_avx2(data: &mut AlignedBlock) {
     unsafe {
         fdct_avx2_internal(data);
     }
 }
 
 #[target_feature(enable = "avx2")]
-unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
+fn fdct_avx2_internal(data: &mut AlignedBlock) {
+    #[target_feature(enable = "avx2")]
     #[allow(non_snake_case)]
-    #[inline(always)]
-    unsafe fn PW_F130_F054_MF130_F054() -> __m256i {
+    #[inline]
+    fn PW_F130_F054_MF130_F054() -> __m256i {
         _mm256_set_epi16(
             F_0_541,
             F_0_541 - F_1_847,
@@ -88,9 +91,10 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
         )
     }
 
+    #[target_feature(enable = "avx2")]
     #[allow(non_snake_case)]
-    #[inline(always)]
-    unsafe fn PW_MF078_F117_F078_F117() -> __m256i {
+    #[inline]
+    fn PW_MF078_F117_F078_F117() -> __m256i {
         _mm256_set_epi16(
             F_1_175,
             F_1_175 - F_0_390,
@@ -111,9 +115,10 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
         )
     }
 
+    #[target_feature(enable = "avx2")]
     #[allow(non_snake_case)]
-    #[inline(always)]
-    unsafe fn PW_MF060_MF089_MF050_MF256() -> __m256i {
+    #[inline]
+    fn PW_MF060_MF089_MF050_MF256() -> __m256i {
         _mm256_set_epi16(
             -F_2_562,
             F_2_053 - F_2_562,
@@ -134,9 +139,10 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
         )
     }
 
+    #[target_feature(enable = "avx2")]
     #[allow(non_snake_case)]
-    #[inline(always)]
-    unsafe fn PW_F050_MF256_F060_MF089() -> __m256i {
+    #[inline]
+    fn PW_F050_MF256_F060_MF089() -> __m256i {
         _mm256_set_epi16(
             -F_0_899,
             F_1_501 - F_0_899,
@@ -157,9 +163,10 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
         )
     }
 
+    #[target_feature(enable = "avx2")]
     #[allow(non_snake_case)]
-    #[inline(always)]
-    unsafe fn PD_DESCALE_P(first_pass: bool) -> __m256i {
+    #[inline]
+    fn PD_DESCALE_P(first_pass: bool) -> __m256i {
         if first_pass {
             _mm256_set_epi32(
                 1 << (DESCALE_P1 - 1),
@@ -185,24 +192,18 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
         }
     }
 
+    #[target_feature(enable = "avx2")]
     #[allow(non_snake_case)]
-    #[inline(always)]
-    unsafe fn PW_DESCALE_P2X() -> __m256i {
-        _mm256_set_epi32(
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-            1 << (PASS1_BITS - 1),
-        )
+    #[inline]
+    fn PW_DESCALE_P2X() -> __m256i {
+        // The rounding offset is added to 16-bit lanes, including odd lanes.
+        _mm256_set1_epi16(1 << (PASS1_BITS - 1))
     }
 
     // In-place 8x8x16-bit matrix transpose using AVX2 instructions
-    #[inline(always)]
-    unsafe fn do_transpose(
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    fn do_transpose(
         i1: __m256i,
         i2: __m256i,
         i3: __m256i,
@@ -244,8 +245,9 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
     }
 
     // In-place 8x8x16-bit accurate integer forward DCT using AVX2 instructions
-    #[inline(always)]
-    unsafe fn do_dct(
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    fn do_dct(
         first_pass: bool,
         i1: __m256i,
         i2: __m256i,
@@ -412,12 +414,12 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
         (t1, t2, t3, t4)
     }
 
-    let in_data = core::mem::transmute::<*mut i16, *mut __m256i>(data.as_mut_ptr());
+    let data = &mut data.data;
 
-    let ymm4 = _mm256_loadu_si256(in_data);
-    let ymm5 = _mm256_loadu_si256(in_data.add(1));
-    let ymm6 = _mm256_loadu_si256(in_data.add(2));
-    let ymm7 = _mm256_loadu_si256(in_data.add(3));
+    let ymm4 = avx_load(&data[0..16]);
+    let ymm5 = avx_load(&data[16..32]);
+    let ymm6 = avx_load(&data[32..48]);
+    let ymm7 = avx_load(&data[48..64]);
 
     // ---- Pass 1: process rows.
     // ymm4=(00 01 02 03 04 05 06 07  10 11 12 13 14 15 16 17)
@@ -451,10 +453,55 @@ unsafe fn fdct_avx2_internal(data: &mut [i16; 64]) {
     let ymm6 = _mm256_permute2x128_si256(ymm0, ymm4, 0x31); // ymm6=data4_5
     let ymm7 = _mm256_permute2x128_si256(ymm2, ymm4, 0x21); // ymm7=data6_7
 
-    let out_data = core::mem::transmute::<*mut i16, *mut __m256i>(data.as_mut_ptr());
+    avx_store(ymm3, &mut data[0..16]);
+    avx_store(ymm5, &mut data[16..32]);
+    avx_store(ymm6, &mut data[32..48]);
+    avx_store(ymm7, &mut data[48..64]);
+}
 
-    _mm256_storeu_si256(out_data, ymm3);
-    _mm256_storeu_si256(out_data.add(1), ymm5);
-    _mm256_storeu_si256(out_data.add(2), ymm6);
-    _mm256_storeu_si256(out_data.add(3), ymm7);
+/// Safe wrapper for an unaligned AVX load
+#[target_feature(enable = "avx2")]
+#[inline]
+fn avx_load(input: &[i16]) -> __m256i {
+    assert!(input.len() == 16);
+    assert!(core::mem::size_of::<[i16; 16]>() == core::mem::size_of::<__m256i>());
+    // SAFETY: we've checked sizes above. The load is unaligned, so no alignment requirements.
+    unsafe { _mm256_loadu_si256(input.as_ptr() as *const __m256i) }
+}
+
+/// Safe wrapper for an unaligned AVX store
+#[target_feature(enable = "avx2")]
+#[inline]
+fn avx_store(input: __m256i, output: &mut [i16]) {
+    assert!(output.len() == 16);
+    assert!(core::mem::size_of::<[i16; 16]>() == core::mem::size_of::<__m256i>());
+    // SAFETY: we've checked sizes above. The load is unaligned, so no alignment requirements.
+    unsafe { _mm256_storeu_si256(output.as_mut_ptr() as *mut __m256i, input) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fdct_avx2_rounding_matches_scalar() {
+        if !std::is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        // This block exposed missing rounding in odd columns of output rows 0 and 4.
+        let input = [
+            -103, -27, 49, -104, 110, 67, 94, -37, 71, 14, 105, -112, 84, -89, -17, -35, 109, 98,
+            89, 48, -119, 45, 104, -57, 67, 88, 57, 28, -87, -125, 123, 96, -71, -33, 1, -12, 52,
+            -47, 11, 88, 11, 98, -73, 25, -126, -40, 98, -99, -5, -51, -21, 125, -30, 110, 29, -18,
+            -70, 96, -119, -99, 77, 94, 21, 18,
+        ];
+        let mut expected = AlignedBlock::new(input);
+        crate::fdct::fdct_scalar(&mut expected);
+
+        let mut actual = AlignedBlock::new(input);
+        fdct_avx2(&mut actual);
+
+        assert_eq!(actual.data, expected.data);
+    }
 }

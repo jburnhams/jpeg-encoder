@@ -1,15 +1,15 @@
 mod fdct;
 mod ycbcr;
 
-use crate::encoder::Operations;
+use crate::encoder::{AlignedBlock, Operations};
 pub use fdct::fdct_avx2;
-pub(crate) use ycbcr::*;
+pub use ycbcr::*;
 
 pub(crate) struct AVX2Operations;
 
 impl Operations for AVX2Operations {
     #[inline(always)]
-    fn fdct(data: &mut [i16; 64]) {
+    fn fdct(data: &mut AlignedBlock) {
         fdct_avx2(data);
     }
 }
