@@ -165,7 +165,7 @@ so far between strips (this is what the WebAssembly bindings do).
 
 Requirements: Rust (1.89 or newer) with the `wasm32-unknown-unknown` target,
 `wasm-bindgen-cli` at the same version as the `wasm-bindgen` crate in `Cargo.lock`,
-and Node 18 or newer. `wasm-opt` comes from the `binaryen` dev dependency.
+and Node 22 or newer (CI tests 22, 24 and 26). `wasm-opt` comes from the `binaryen` dev dependency.
 
 ```bash
 rustup target add wasm32-unknown-unknown
