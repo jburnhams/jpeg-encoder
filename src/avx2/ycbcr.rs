@@ -1,45 +1,70 @@
 #[cfg(target_arch = "x86")]
 use core::arch::x86::{
-    __m256i, _mm256_add_epi32, _mm256_mullo_epi32, _mm256_set1_epi32, _mm256_set_epi32,
-    _mm256_srli_epi32, _mm256_sub_epi32,
+    __m256i, _mm_cvtsi128_si64, _mm256_add_epi32, _mm256_castsi256_si128, _mm256_mullo_epi32,
+    _mm256_permutevar8x32_epi32, _mm256_set1_epi32, _mm256_setr_epi32, _mm256_shuffle_epi8,
+    _mm256_sub_epi32,
 };
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::{
-    __m256i, _mm256_add_epi32, _mm256_mullo_epi32, _mm256_set1_epi32, _mm256_set_epi32,
-    _mm256_srli_epi32, _mm256_sub_epi32,
+    __m256i, _mm_cvtsi128_si64, _mm256_add_epi32, _mm256_castsi256_si128, _mm256_mullo_epi32,
+    _mm256_permutevar8x32_epi32, _mm256_set1_epi32, _mm256_setr_epi32, _mm256_shuffle_epi8,
+    _mm256_sub_epi32,
 };
 
 use alloc::vec::Vec;
 
-use crate::{rgb_to_ycbcr, ImageBuffer, JpegColorType};
+use crate::{ImageBuffer, JpegColorType, rgb_to_ycbcr};
 
 macro_rules! ycbcr_image_avx2 {
     ($name:ident, $num_colors:expr, $o1:expr, $o2:expr, $o3:expr) => {
-        pub(crate) struct $name<'a>(pub &'a [u8], pub u16, pub u16);
+        pub struct $name<'a>(pub &'a [u8], pub u16, pub u16);
 
         impl<'a> $name<'a> {
             #[target_feature(enable = "avx2")]
-            unsafe fn fill_buffers_avx2(&self, y: u16, buffers: &mut [Vec<u8>; 4]) {
-                unsafe fn load3(data: *const u8) -> __m256i {
-                    _mm256_set_epi32(
-                        *data as i32,
-                        *data.offset(1 * $num_colors) as i32,
-                        *data.offset(2 * $num_colors) as i32,
-                        *data.offset(3 * $num_colors) as i32,
-                        *data.offset(4 * $num_colors) as i32,
-                        *data.offset(5 * $num_colors) as i32,
-                        *data.offset(6 * $num_colors) as i32,
-                        *data.offset(7 * $num_colors) as i32,
+            fn fill_buffers_avx2(&self, y: u16, buffers: &mut [Vec<u8>; 4]) {
+                // TODO: this compiles to many separate scalar loads and could be optimized further.
+                // But the gains are no more than 3% end to end and it doesn't seem to be worth the complexity.
+                #[inline]
+                #[target_feature(enable = "avx2")]
+                fn load3(data: &[u8]) -> __m256i {
+                    _ = data[7 * $num_colors]; // dummy indexing operation up front to avoid bounds checks later
+                    _mm256_setr_epi32(
+                        data[0] as i32,
+                        data[1 * $num_colors] as i32,
+                        data[2 * $num_colors] as i32,
+                        data[3 * $num_colors] as i32,
+                        data[4 * $num_colors] as i32,
+                        data[5 * $num_colors] as i32,
+                        data[6 * $num_colors] as i32,
+                        data[7 * $num_colors] as i32,
                     )
                 }
 
-                let mut y_buffer = buffers[0].as_mut_ptr().add(buffers[0].len());
-                buffers[0].set_len(buffers[0].len() + self.width() as usize);
-                let mut cb_buffer = buffers[1].as_mut_ptr().add(buffers[1].len());
-                buffers[1].set_len(buffers[1].len() + self.width() as usize);
-                let mut cr_buffer = buffers[2].as_mut_ptr().add(buffers[2].len());
-                buffers[2].set_len(buffers[2].len() + self.width() as usize);
+                #[inline]
+                #[target_feature(enable = "avx2")]
+                fn avx_as_u8_array(data: __m256i) -> [u8; 8] {
+                    // Select the third byte of every i32, pack the bytes into
+                    // the low i32 byte of each 128-bit lane: idx = (4 * i) + 2
+                    let u8_shuffle_mask = _mm256_set1_epi32(i32::from_le_bytes([2, 6, 10, 14]));
+                    // Shuffle the lowest i32 lane from the high 128-bit lane
+                    // into the second i32
+                    let u32_permute_mask = _mm256_setr_epi32(0, 4, 0, 0, 0, 0, 0, 0);
+
+                    // ABCD EFGH IJKL MNOP becomes CGKO CGKO CGKO CGKO, for both lanes
+                    let a = _mm256_shuffle_epi8(data, u8_shuffle_mask);
+                    // A... B... becomes AB.. ....
+                    let a = _mm256_permutevar8x32_epi32(a, u32_permute_mask);
+
+                    // No-op cast to __m128i and extract the lower 64-bits
+                    let out = _mm256_castsi256_si128(a);
+                    _mm_cvtsi128_si64(out).to_le_bytes()
+                }
+
+                let [y_buffer, cb_buffer, cr_buffer, _] = buffers;
+                y_buffer.reserve(self.width() as usize);
+                cb_buffer.reserve(self.width() as usize);
+                cr_buffer.reserve(self.width() as usize);
 
                 let ymulr = _mm256_set1_epi32(19595);
                 let ymulg = _mm256_set1_epi32(38470);
@@ -53,17 +78,14 @@ macro_rules! ycbcr_image_avx2 {
                 let crmulg = _mm256_set1_epi32(27439);
                 let crmulb = _mm256_set1_epi32(5329);
 
-                let mut data = self
-                    .0
-                    .as_ptr()
-                    .offset((y as isize * self.1 as isize * $num_colors));
+                let mut data = &self.0[(y as usize * self.1 as usize * $num_colors)..];
 
                 for _ in 0..self.width() / 8 {
-                    let r = load3(data.offset($o1));
-                    let g = load3(data.offset($o2));
-                    let b = load3(data.offset($o3));
+                    let r = load3(&data[$o1..]);
+                    let g = load3(&data[$o2..]);
+                    let b = load3(&data[$o3..]);
 
-                    data = data.add($num_colors * 8);
+                    data = &data[($num_colors * 8)..];
 
                     let yr = _mm256_mullo_epi32(ymulr, r);
                     let yg = _mm256_mullo_epi32(ymulg, g);
@@ -71,8 +93,7 @@ macro_rules! ycbcr_image_avx2 {
 
                     let y = _mm256_add_epi32(_mm256_add_epi32(yr, yg), yb);
                     let y = _mm256_add_epi32(y, _mm256_set1_epi32(0x7FFF));
-                    let y = _mm256_srli_epi32(y, 16);
-                    let y: [i32; 8] = core::mem::transmute(y);
+                    y_buffer.extend(avx_as_u8_array(y));
 
                     let cbr = _mm256_mullo_epi32(cbmulr, r);
                     let cbg = _mm256_mullo_epi32(cbmulg, g);
@@ -81,8 +102,7 @@ macro_rules! ycbcr_image_avx2 {
                     let cb = _mm256_add_epi32(_mm256_sub_epi32(cbr, cbg), cbb);
                     let cb = _mm256_add_epi32(cb, _mm256_set1_epi32(128 << 16));
                     let cb = _mm256_add_epi32(cb, _mm256_set1_epi32(0x7FFF));
-                    let cb = _mm256_srli_epi32(cb, 16);
-                    let cb: [i32; 8] = core::mem::transmute(cb);
+                    cb_buffer.extend(avx_as_u8_array(cb));
 
                     let crr = _mm256_mullo_epi32(crmulr, r);
                     let crg = _mm256_mullo_epi32(crmulg, g);
@@ -91,39 +111,16 @@ macro_rules! ycbcr_image_avx2 {
                     let cr = _mm256_sub_epi32(_mm256_sub_epi32(crr, crg), crb);
                     let cr = _mm256_add_epi32(cr, _mm256_set1_epi32(128 << 16));
                     let cr = _mm256_add_epi32(cr, _mm256_set1_epi32(0x7FFF));
-                    let cr = _mm256_srli_epi32(cr, 16);
-                    let cr: [i32; 8] = core::mem::transmute(cr);
-
-                    for y in y.iter().rev() {
-                        *y_buffer = *y as u8;
-                        y_buffer = y_buffer.offset(1);
-                    }
-
-                    for cb in cb.iter().rev() {
-                        *cb_buffer = *cb as u8;
-                        cb_buffer = cb_buffer.offset(1);
-                    }
-
-                    for cr in cr.iter().rev() {
-                        *cr_buffer = *cr as u8;
-                        cr_buffer = cr_buffer.offset(1);
-                    }
+                    cr_buffer.extend(avx_as_u8_array(cr));
                 }
 
                 for _ in 0..self.width() % 8 {
-                    let (y, cb, cr) =
-                        rgb_to_ycbcr(*data.offset($o1), *data.offset($o2), *data.offset($o3));
+                    let (y, cb, cr) = rgb_to_ycbcr(data[$o1], data[$o2], data[$o3]);
+                    data = &data[$num_colors..];
 
-                    data = data.add($num_colors);
-
-                    *y_buffer = y;
-                    y_buffer = y_buffer.offset(1);
-
-                    *cb_buffer = cb;
-                    cb_buffer = cb_buffer.offset(1);
-
-                    *cr_buffer = cr;
-                    cr_buffer = cr_buffer.offset(1);
+                    y_buffer.push(y);
+                    cb_buffer.push(cb);
+                    cr_buffer.push(cr);
                 }
             }
         }
@@ -155,3 +152,86 @@ ycbcr_image_avx2!(RgbImageAVX2, 3, 0, 1, 2);
 ycbcr_image_avx2!(RgbaImageAVX2, 4, 0, 1, 2);
 ycbcr_image_avx2!(BgrImageAVX2, 3, 2, 1, 0);
 ycbcr_image_avx2!(BgraImageAVX2, 4, 2, 1, 0);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::vec::Vec;
+
+    // A very basic linear congruential generator (LCG) to avoid external dependencies.
+    pub struct SimpleRng {
+        state: u64,
+    }
+
+    impl SimpleRng {
+        /// Create a new RNG with a given seed.
+        pub fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+
+        /// Generate the next random u64 value.
+        pub fn next_u64(&mut self) -> u64 {
+            // Constants from Numerical Recipes
+            self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            self.state
+        }
+
+        /// Generate a random byte in 0..=255
+        pub fn next_byte(&mut self) -> u8 {
+            (self.next_u64() & 0xFF) as u8
+        }
+
+        /// Fill a Vec<u8> with random bytes of the given length.
+        pub fn random_bytes(&mut self, len: usize) -> Vec<u8> {
+            (0..len).map(|_| self.next_byte()).collect()
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "simd")]
+    fn avx_matches_scalar_rgb() {
+        // Do not run AVX2 test on machines without it
+        if !std::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut rng = SimpleRng::new(42);
+        let width = 512 + 3; // power of two plus a bit to stress remainder handling
+        let height = 1;
+        let bpp = 3;
+
+        let input = rng.random_bytes(width * height * bpp); // power of two plus a bit to exercise remainder handling
+
+        let scalar_result: Vec<[u8; 3]> = input
+            .chunks_exact(bpp)
+            .map(|chunk| {
+                let [r, g, b, ..] = chunk else { unreachable!() };
+                let (y, cb, cr) = rgb_to_ycbcr(*r, *g, *b);
+                [y, cb, cr]
+            })
+            .collect();
+
+        let mut buffers = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        let avx_input = RgbImageAVX2(
+            &input,
+            width.try_into().unwrap(),
+            height.try_into().unwrap(),
+        );
+        // SAFETY: we've checked above that AVX2 is present
+        unsafe {
+            avx_input.fill_buffers_avx2(0, &mut buffers);
+        }
+
+        for i in 0..3 {
+            assert_eq!(buffers[i].len(), input.len() / 3);
+        }
+
+        for (i, pixel) in scalar_result.iter().copied().enumerate() {
+            let avx_pixel: [u8; 3] = [buffers[0][i], buffers[1][i], buffers[2][i]];
+            if pixel != avx_pixel {
+                panic!(
+                    "Mismatch at index {i}: scalar result is {pixel:?}, avx result is {avx_pixel:?}"
+                );
+            }
+        }
+    }
+}

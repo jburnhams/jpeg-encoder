@@ -1,6 +1,5 @@
 use alloc::fmt::Display;
-#[cfg(feature = "std")]
-use std::error::Error;
+use core::error::Error;
 
 /// # The error type for encoding
 #[derive(Debug)]
@@ -26,6 +25,9 @@ pub enum EncodingError {
 
     /// An io error occurred during writing (Should be used in no_std cases instead of IoError)
     Write(alloc::string::String),
+
+    /// A [StripEncoder](crate::StripEncoder) was misconfigured or fed bad data
+    StripEncoding(alloc::string::String),
 }
 
 #[cfg(feature = "std")]
@@ -61,12 +63,13 @@ impl Display for EncodingError {
             #[cfg(feature = "std")]
             IoError(err) => err.fmt(f),
             Write(err) => write!(f, "{}", err),
+            StripEncoding(err) => write!(f, "Strip encoding error: {}", err),
         }
     }
 }
 
-#[cfg(feature = "std")]
 impl Error for EncodingError {
+    #[cfg(feature = "std")]
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             EncodingError::IoError(err) => Some(err),

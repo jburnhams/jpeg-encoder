@@ -1,54 +1,80 @@
 {
   "name": "jpeg-encoder-wasm",
   "version": "0.1.0",
-  "description": "WebAssembly JPEG encoder",
+  "description": "Streaming JPEG encoder for Node and browsers: WebAssembly build of the Rust jpeg-encoder crate that encodes images strip by strip",
+  "keywords": [
+    "jpeg",
+    "jpg",
+    "encoder",
+    "streaming",
+    "wasm",
+    "webassembly",
+    "image"
+  ],
+  "homepage": "https://github.com/jburnhams/jpeg-encoder#readme",
+  "bugs": {
+    "url": "https://github.com/jburnhams/jpeg-encoder/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jburnhams/jpeg-encoder.git"
+  },
+  "license": "(MIT OR Apache-2.0) AND IJG",
+  "author": "Jonathan Burnhams",
+  "contributors": [
+    "Volker Ströbel (author of the jpeg-encoder Rust crate)"
+  ],
+  "type": "module",
   "main": "./pkg/cjs/index.cjs",
   "module": "./pkg/esm/index.js",
   "types": "./pkg/index.d.ts",
   "exports": {
     ".": {
       "import": {
-        "types": "./pkg/index.d.ts",
+        "types": "./pkg/esm/index.d.ts",
         "default": "./pkg/esm/index.js"
       },
       "require": {
-        "types": "./pkg/index.d.ts",
+        "types": "./pkg/cjs/index.d.ts",
         "default": "./pkg/cjs/index.cjs"
       }
     },
+    "./jpeg_encoder_bg.wasm": "./pkg/esm/jpeg_encoder_bg.wasm",
+    "./pkg/*": "./pkg/*",
     "./package.json": "./package.json"
   },
   "files": [
-    "pkg"
+    "pkg",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "LICENSE-IJG"
   ],
-  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
   "scripts": {
     "build": "npm run build:wasm && npm run build:bindings",
-    "build:wasm": "cargo build --manifest-path wasm-bindings/Cargo.toml --release --target wasm32-unknown-unknown",
+    "build:wasm": "cargo build -p jpeg-encoder-wasm --target wasm32-unknown-unknown --profile wasm-release",
     "build:bindings": "node scripts/build-bindings.js",
+    "test": "node --test test/esm.test.js test/cjs.test.cjs test/quality.test.js && npm run test:types",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=pkg/esm/index.js --test-coverage-include=pkg/esm/encoder.js --test-coverage-include=pkg/cjs/index.cjs --test-coverage-include=pkg/cjs/encoder.cjs --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=80 test/esm.test.js test/cjs.test.cjs test/quality.test.js",
+    "test:types": "tsc -p test/tsconfig.json",
+    "test:browser": "node test/browser.test.js",
+    "test:golden:update": "UPDATE_GOLDEN=1 node --test test/quality.test.js",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "report": "node test/report.js",
+    "bench": "node bench/bench.js",
+    "example": "node examples/encode.js",
     "prepare:docs": "mkdir -p docs/dist && cp -r pkg/esm/* docs/dist/",
-    "test": "npm run test:esm && npm run test:cjs",
-    "test:esm": "node test/integration.test.js",
-    "test:cjs": "node test/integration-cjs.test.cjs",
-    "test:browser": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js",
-    "test:all": "npm test && npm run test:browser",
-    "example": "node examples/encode.js"
+    "prepublishOnly": "npm run build && npm test"
   },
-  "directories": {
-    "example": "examples",
-    "test": "test"
-  },
-  "repository": {
-    "type": "git",
-    "url": "http://local_proxy@127.0.0.1:44600/git/jburnhams/jpeg-encoder"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "@jest/globals": "^30.2.0",
-    "canvas": "^3.2.0",
-    "jest": "^30.2.0",
-    "jest-environment-jsdom": "^30.2.0"
+    "@biomejs/biome": "^2.6.6",
+    "binaryen": "^132.0.0",
+    "jpeg-js": "^0.4.4",
+    "playwright": "^1.50.0",
+    "typescript": "^7.0.2"
   }
 }

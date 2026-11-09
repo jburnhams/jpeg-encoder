@@ -1,0 +1,71 @@
+name: Publish to npm
+
+# Publishes when a GitHub release is published, or by hand for an existing
+# tag (Actions > Publish to npm > Run workflow). The tag must match the
+# version in package.json (for example v0.1.0).
+#
+# "published", not "created": action-gh-release creates a draft and then
+# publishes it, and GitHub doesn't send "created" for drafts (this is why
+# leaflet-node v3.0.0 never reached npm).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) and provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or later
+      - run: npm install -g npm@latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen-cli (must match the wasm-bindgen crate version)
+        run: |
+          version=$(cargo metadata --format-version 1 --locked | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+
+      - name: Check the tag matches package.json
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "Release tag $TAG does not match package.json version $version"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Publish (skipped if this version is already on npm, e.g. published by hand)
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published; nothing to do."
+          else
+            npm publish --provenance --access public --ignore-scripts
+          fi

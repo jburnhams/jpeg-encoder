@@ -1,0 +1,160 @@
+name: "Release"
+
+# After every green CI run on main, bump the version through a pull request
+# (main only accepts pull requests), merge it, then tag and release that commit.
+#
+# Version bump comes from the commit messages since the latest v* tag:
+#   "major"/"breaking" -> major, "minor"/"feat"/"feature" -> minor, else patch.
+#
+# The bump PR's merge commit carries [skip ci], so it doesn't start another
+# CI -> release cycle. The release (created with RELEASE_TOKEN so other
+# workflows fire) triggers npm-publish.yml.
+#
+# RELEASE_TOKEN needs contents + pull-requests write on this repo. If the main
+# ruleset ever requires approvals or status checks, the bump PR will wait for them.
+#
+# Same as leaflet-node's release.yml, except that the last release is taken
+# from package.json (v<version> tag) rather than the newest v* tag, because
+# this fork's history also contains upstream jpeg-encoder's crate versions.
+# The very first release publishes the package.json version as it is.
+
+on:
+  workflow_run:
+    workflows: ["WebAssembly package"]
+    types:
+      - completed
+    branches:
+      - main
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: "Bump, tag and release"
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+
+    steps:
+      # Use the latest main, not just the commit whose CI finished: if more PRs
+      # landed meanwhile, the bump must account for every commit it releases.
+      # Their own CI runs will then find nothing new to release.
+      - name: "Checkout main"
+        uses: "actions/checkout@v7"
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: "Setup Node.js"
+        uses: "actions/setup-node@v7"
+        with:
+          node-version: "24"
+
+      - name: "Work out the next version"
+        id: version
+        run: |
+          set -euo pipefail
+          if [ -n "$(git tag --points-at HEAD --list 'v[0-9]*')" ]; then
+            echo "HEAD is already tagged; nothing to release."
+            exit 0
+          fi
+
+          current="v$(node -p "require('./package.json').version")"
+          if ! git rev-parse -q --verify "refs/tags/$current" >/dev/null; then
+            echo "First release: $current"
+            echo "first=$current" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last_tag="$current"
+          range="$last_tag..HEAD"
+
+          # Ignore earlier release commits when choosing the bump
+          messages=$(git log --format=%B "$range" | grep -v '^ci: release v' || true)
+          if [ -z "$(tr -d '[:space:]' <<<"$messages")" ]; then
+            echo "No changes since $last_tag; nothing to release."
+            exit 0
+          fi
+
+          if grep -qE '\b([Mm]ajor|[Bb]reaking)\b' <<<"$messages"; then
+            bump=major
+          elif grep -qE '\b([Mm]inor|[Ff]eat|[Ff]eature)\b' <<<"$messages"; then
+            bump=minor
+          else
+            bump=patch
+          fi
+
+          IFS=. read -r major minor patch <<<"${last_tag#v}"
+          case "$bump" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          version="$major.$minor.$patch"
+          echo "$last_tag -> v$version ($bump)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: "Release the current version (first release)"
+        if: ${{ steps.version.outputs.first }}
+        uses: "softprops/action-gh-release@v2"
+        with:
+          tag_name: ${{ steps.version.outputs.first }}
+          target_commitish: ${{ steps.version.outputs.sha }}
+          name: Release ${{ steps.version.outputs.first }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: "Open and merge the version bump PR"
+        id: bump
+        if: ${{ steps.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          branch="release/v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git switch -C "$branch"
+          npm version "$VERSION" --no-git-tag-version
+          git commit -am "ci: release v$VERSION [skip ci]"
+          # Force: a re-run after a failed attempt replaces the bot's own branch
+          git push --force origin "$branch"
+
+          if [ "$(gh pr view "$branch" --json state --jq .state 2>/dev/null || true)" != "OPEN" ]; then
+            gh pr create --base main --head "$branch" \
+              --title "Release v$VERSION" \
+              --body "Automated version bump to v$VERSION after CI passed on main."
+          fi
+          # GitHub computes mergeability asynchronously, so retry briefly
+          for attempt in 1 2 3 4 5 6; do
+            if gh pr merge "$branch" --merge --delete-branch \
+              --subject "ci: release v$VERSION [skip ci]"; then
+              break
+            fi
+            if [ "$attempt" = 6 ]; then
+              echo "Could not merge the release PR; see the error above." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          sha=$(gh pr view "$branch" --json mergeCommit --jq .mergeCommit.oid)
+          echo "Merged as $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: "Create tag and GitHub release"
+        if: ${{ steps.bump.outputs.sha }}
+        uses: "softprops/action-gh-release@v2"
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ steps.bump.outputs.sha }}
+          name: Release v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}

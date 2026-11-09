@@ -31,13 +31,6 @@ extern crate std;
 extern crate alloc;
 extern crate core;
 
-#[cfg(all(feature = "wasm-bindgen", not(feature = "std")))]
-extern crate wee_alloc;
-
-#[cfg(all(feature = "wasm-bindgen", not(feature = "std")))]
-#[global_allocator]
-static GLOBAL: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 mod avx2;
 mod encoder;
@@ -48,14 +41,20 @@ mod image_buffer;
 mod marker;
 mod quantization;
 mod writer;
-#[cfg(feature = "wasm-bindgen")]
-pub mod wasm;
 
-pub use encoder::{ColorType, ComponentSpec, Encoder, JpegColorType, SamplingFactor, StripEncoder};
+pub use encoder::{
+    ChromaSubsamplingMethod, ColorType, Encoder, JpegColorType, SamplingFactor, StripEncoder,
+};
 pub use error::EncodingError;
-pub use image_buffer::{cmyk_to_ycck, rgb_to_ycbcr, ImageBuffer};
+pub use image_buffer::{ImageBuffer, cmyk_to_ycck, rgb_to_ycbcr};
 pub use quantization::QuantizationTableType;
-pub use writer::{Density, JfifWrite};
+pub use writer::{JfifWrite, PixelDensity, PixelDensityUnit};
+
+#[cfg(feature = "benchmark")]
+pub use fdct::fdct;
+
+#[cfg(feature = "benchmark")]
+pub use image_buffer::RgbImage;
 
 #[cfg(all(
     feature = "benchmark",
@@ -63,13 +62,20 @@ pub use writer::{Density, JfifWrite};
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 pub use avx2::fdct_avx2;
-#[cfg(feature = "benchmark")]
-pub use fdct::fdct;
+
+#[cfg(all(
+    feature = "benchmark",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub use avx2::RgbImageAVX2;
 
 #[cfg(test)]
 mod tests {
     use crate::image_buffer::rgb_to_ycbcr;
-    use crate::{ColorType, Encoder, QuantizationTableType, SamplingFactor, StripEncoder};
+    use crate::{
+        ChromaSubsamplingMethod, ColorType, Encoder, QuantizationTableType, SamplingFactor,
+    };
     use jpeg_decoder::{Decoder, ImageInfo, PixelFormat};
 
     use alloc::boxed::Box;
@@ -223,139 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rgb_strip_encoder_matches() {
-        let (data, width, height) = create_test_img_rgb();
-
-        let mut expected = Vec::new();
-        Encoder::new(&mut expected, 80)
-            .encode(&data, width, height, ColorType::Rgb)
-            .unwrap();
-
-        let streaming_encoder = Encoder::new(Vec::new(), 80);
-        let mut strip_encoder = streaming_encoder
-            .into_strip_encoder(width, height, ColorType::Rgb)
-            .unwrap();
-
-        let header = strip_encoder.header_bytes().unwrap();
-
-        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
-        let strip_height = 5;
-
-        for chunk in data.chunks(row_stride * strip_height) {
-            strip_encoder.encode_strip(chunk).unwrap();
-        }
-
-        let result = strip_encoder.finish().unwrap();
-
-        assert_eq!(result, expected);
-        assert_eq!(&result[..header.len()], header.as_slice());
-        let footer = StripEncoder::<Vec<u8>>::footer_bytes();
-        assert_eq!(&result[result.len() - footer.len()..], &footer);
-    }
-
-    #[test]
-    fn test_rgb_strip_encoder_large_strip_height() {
-        let (data, width, height) = create_test_img_rgb();
-
-        let mut expected = Vec::new();
-        let mut full_image_encoder = Encoder::new(&mut expected, 80);
-        full_image_encoder.set_sampling_factor(SamplingFactor::F_1_1);
-        full_image_encoder
-            .encode(&data, width, height, ColorType::Rgb)
-            .unwrap();
-
-        let mut streaming_encoder = Encoder::new(Vec::new(), 80);
-        streaming_encoder.set_sampling_factor(SamplingFactor::F_1_1);
-        let mut strip_encoder = streaming_encoder
-            .into_strip_encoder(width, height, ColorType::Rgb)
-            .unwrap();
-
-        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
-        let strip_height = 24;
-
-        for chunk in data.chunks(row_stride * strip_height) {
-            strip_encoder.encode_strip(chunk).unwrap();
-        }
-
-        let result = strip_encoder.finish().unwrap();
-
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_rgb_strip_encoder_pads_final_partial_strip() {
-        let width = 16u16;
-        let height = 19u16;
-        let mut data = Vec::with_capacity(width as usize * height as usize * 3);
-
-        for y in 0..height {
-            for x in 0..width {
-                let x = x as u8;
-                let y = y as u8;
-                data.push(x);
-                data.push(y);
-                data.push(x.wrapping_add(y));
-            }
-        }
-
-        let mut expected = Vec::new();
-        let mut full_image_encoder = Encoder::new(&mut expected, 90);
-        full_image_encoder.set_sampling_factor(SamplingFactor::F_1_1);
-        full_image_encoder
-            .encode(&data, width, height, ColorType::Rgb)
-            .unwrap();
-
-        let mut streaming_encoder = Encoder::new(Vec::new(), 90);
-        streaming_encoder.set_sampling_factor(SamplingFactor::F_1_1);
-        let mut strip_encoder = streaming_encoder
-            .into_strip_encoder(width, height, ColorType::Rgb)
-            .unwrap();
-
-        let row_stride = usize::from(width) * ColorType::Rgb.get_bytes_per_pixel();
-        let strip_heights = [8usize, 8, 3];
-        let mut offset = 0;
-
-        for &height in &strip_heights {
-            let end = offset + row_stride * height;
-            strip_encoder.encode_strip(&data[offset..end]).unwrap();
-            offset = end;
-        }
-
-        let result = strip_encoder.finish().unwrap();
-
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_gray_strip_encoder_matches() {
-        let (data, width, height) = create_test_img_gray();
-
-        let mut expected = Vec::new();
-        Encoder::new(&mut expected, 90)
-            .encode(&data, width, height, ColorType::Luma)
-            .unwrap();
-
-        let streaming_encoder = Encoder::new(Vec::new(), 90);
-        let mut strip_encoder = streaming_encoder
-            .into_strip_encoder(width, height, ColorType::Luma)
-            .unwrap();
-
-        let header = strip_encoder.header_bytes().unwrap();
-        let row_stride = usize::from(width) * ColorType::Luma.get_bytes_per_pixel();
-
-        for chunk in data.chunks(row_stride * 7) {
-            strip_encoder.encode_strip(chunk).unwrap();
-        }
-
-        let result = strip_encoder.finish().unwrap();
-
-        assert_eq!(result, expected);
-        assert_eq!(&result[..header.len()], header.as_slice());
-        let footer = StripEncoder::<Vec<u8>>::footer_bytes();
-        assert_eq!(&result[result.len() - footer.len()..], &footer);
-    }
-
-    #[test]
     fn test_rgba_80() {
         let (data, width, height) = create_test_img_rgba();
 
@@ -399,6 +272,37 @@ mod tests {
         let mut result = Vec::new();
         let mut encoder = Encoder::new(&mut result, 100);
         encoder.set_sampling_factor(SamplingFactor::F_2_2);
+        encoder
+            .encode(&data, width, height, ColorType::Rgb)
+            .unwrap();
+
+        check_result(data, width, height, &mut result, PixelFormat::RGB24);
+    }
+
+    #[test]
+    fn test_rgb_2_2_box_average() {
+        let (data, width, height) = create_test_img_rgb();
+
+        let mut result = Vec::new();
+        let mut encoder = Encoder::new(&mut result, 100);
+        encoder.set_sampling_factor(SamplingFactor::F_2_2);
+        encoder.set_chroma_subsampling_method(ChromaSubsamplingMethod::Average);
+        encoder
+            .encode(&data, width, height, ColorType::Rgb)
+            .unwrap();
+
+        check_result(data, width, height, &mut result, PixelFormat::RGB24);
+    }
+
+    #[test]
+    fn test_rgb_2_2_box_average_progressive() {
+        let (data, width, height) = create_test_img_rgb();
+
+        let mut result = Vec::new();
+        let mut encoder = Encoder::new(&mut result, 100);
+        encoder.set_sampling_factor(SamplingFactor::F_2_2);
+        encoder.set_chroma_subsampling_method(ChromaSubsamplingMethod::Average);
+        encoder.set_progressive(true);
         encoder
             .encode(&data, width, height, ColorType::Rgb)
             .unwrap();
@@ -551,10 +455,12 @@ mod tests {
             .encode(&data, width, height, ColorType::Rgb)
             .unwrap();
 
-        assert!(result
-            .as_slice()
-            .windows(DRI_DATA.len())
-            .any(|w| w == DRI_DATA));
+        assert!(
+            result
+                .as_slice()
+                .windows(DRI_DATA.len())
+                .any(|w| w == DRI_DATA)
+        );
 
         check_result(data, width, height, &mut result, PixelFormat::RGB24);
     }
@@ -574,10 +480,12 @@ mod tests {
             .encode(&data, width, height, ColorType::Rgb)
             .unwrap();
 
-        assert!(result
-            .as_slice()
-            .windows(DRI_DATA.len())
-            .any(|w| w == DRI_DATA));
+        assert!(
+            result
+                .as_slice()
+                .windows(DRI_DATA.len())
+                .any(|w| w == DRI_DATA)
+        );
 
         check_result(data, width, height, &mut result, PixelFormat::RGB24);
     }
@@ -597,10 +505,12 @@ mod tests {
             .encode(&data, width, height, ColorType::Rgb)
             .unwrap();
 
-        assert!(result
-            .as_slice()
-            .windows(DRI_DATA.len())
-            .any(|w| w == DRI_DATA));
+        assert!(
+            result
+                .as_slice()
+                .windows(DRI_DATA.len())
+                .any(|w| w == DRI_DATA)
+        );
 
         check_result(data, width, height, &mut result, PixelFormat::RGB24);
     }
@@ -612,7 +522,7 @@ mod tests {
         let mut result = Vec::new();
         let mut encoder = Encoder::new(&mut result, 100);
 
-        encoder.add_app_segment(15, b"HOHOHO\0").unwrap();
+        encoder.add_app_segment(15, b"HOHOHO\0".to_vec()).unwrap();
 
         encoder
             .encode(&data, width, height, ColorType::Rgb)
@@ -620,10 +530,12 @@ mod tests {
 
         let segment_data = b"\xEF\0\x09HOHOHO\0";
 
-        assert!(result
-            .as_slice()
-            .windows(segment_data.len())
-            .any(|w| w == segment_data));
+        assert!(
+            result
+                .as_slice()
+                .windows(segment_data.len())
+                .any(|w| w == segment_data)
+        );
     }
 
     #[test]
