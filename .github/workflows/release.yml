@@ -105,8 +105,10 @@ jobs:
           target_commitish: ${{ steps.version.outputs.sha }}
           name: Release ${{ steps.version.outputs.first }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # Pass the token as an input: action-gh-release ignores the
+          # GITHUB_TOKEN env var, and a release made with the default token
+          # doesn't trigger npm-publish.yml.
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: "Open and merge the version bump PR"
         id: bump
@@ -156,5 +158,7 @@ jobs:
           target_commitish: ${{ steps.bump.outputs.sha }}
           name: Release v${{ steps.version.outputs.version }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # Pass the token as an input: action-gh-release ignores the
+          # GITHUB_TOKEN env var, and a release made with the default token
+          # doesn't trigger npm-publish.yml.
+          token: ${{ secrets.RELEASE_TOKEN }}
