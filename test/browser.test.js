@@ -40,7 +40,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 const browser = await chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
+  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
 );
 
 try {
@@ -48,14 +48,27 @@ try {
   await page.goto(origin);
 
   const result = await page.evaluate(async () => {
-    const { default: init, StreamingJpegEncoder, WasmColorType } = await import('/pkg/esm/index.js');
+    const {
+      default: init,
+      StreamingJpegEncoder,
+      WasmColorType,
+    } = await import('/pkg/esm/index.js');
     const { makeImage, encodeInStrips } = await import('/test/helpers.js');
     await init();
 
     const width = 120;
     const height = 75;
     const rgba = makeImage(width, height, 4);
-    const bytes = encodeInStrips(StreamingJpegEncoder, rgba, width, height, 4, WasmColorType.Rgba, 92, 10);
+    const bytes = encodeInStrips(
+      StreamingJpegEncoder,
+      rgba,
+      width,
+      height,
+      4,
+      WasmColorType.Rgba,
+      92,
+      10
+    );
 
     const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);

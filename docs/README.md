@@ -55,6 +55,7 @@ The demo is automatically deployed to GitHub Pages when changes are pushed to th
 ## Browser Compatibility
 
 The demo works in all modern browsers that support:
+
 - WebAssembly
 - ES6 Modules
 - Canvas API

@@ -106,34 +106,34 @@ there the module is loaded on `require()` and awaiting `init()` is optional.
 
 ### API
 
-| | |
-|---|---|
-| `init(module?)` | Load the WebAssembly module. Await once before encoding; later calls return the same promise. With no argument it loads the bundled `jpeg_encoder_bg.wasm` (in Node it reads the file, in browsers it fetches it next to the module). Pass a URL, `Response`, bytes or `WebAssembly.Module` to load it from elsewhere; the file is also exported as `jpeg-encoder-wasm/jpeg_encoder_bg.wasm`. |
-| `new StreamingJpegEncoder(width, height, colorType, options?)` | Width and height 1 to 65535. `options` is described below. The older form `(width, height, colorType, quality, samplingFactor?)` still works. |
-| `encoder.encode_strip(rows)` | Encode complete rows (`Uint8Array` or `Uint8ClampedArray`), returns the new JPEG bytes (possibly empty). Throws if the data isn't whole rows or there are more rows than the image has left. |
-| `encoder.take_output()` | Return bytes produced so far without encoding anything. |
-| `encoder.rows_remaining` | Rows still to be passed in. |
-| `encoder.finish()` | Return the final bytes and free the encoder. Throws, and leaves the encoder usable, if rows are missing. |
-| `encoder.free()` | Free the encoder without finishing. Safe to call more than once. |
-| `encodeJpeg(pixels, width, height, colorType = Rgba, options?)` | Encode a whole image in one call. Also accepts `quality, samplingFactor?` in place of `options`. |
-| `WasmColorType` | `Luma` (1 byte per pixel), `Rgb`, `Bgr`, `Ycbcr` (3), `Rgba`, `Bgra` (4, alpha ignored), `Cmyk`, `CmykAsYcck`, `Ycck` (4). |
-| `WasmSamplingFactor` | `F_2_2` (4:2:0), `F_2_1` (4:2:2), `F_1_2` (4:4:0), `F_1_1` (4:4:4). Default: `F_2_2` below quality 90, `F_1_1` at 90 and above. |
-| `WasmQuantizationTable` | `Default`, `Flat`, `MsSsim`, `PsnrHvs`, `ImageMagick`, `KleinSilversteinCarney`, `DentalXRays`, `VisualDetectionModel`, `ImprovedDetectionModel`. |
-| `WasmDensityUnit` | `AspectRatio`, `Inch`, `Centimeter`. |
+|                                                                 |                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init(module?)`                                                 | Load the WebAssembly module. Await once before encoding; later calls return the same promise. With no argument it loads the bundled `jpeg_encoder_bg.wasm` (in Node it reads the file, in browsers it fetches it next to the module). Pass a URL, `Response`, bytes or `WebAssembly.Module` to load it from elsewhere; the file is also exported as `jpeg-encoder-wasm/jpeg_encoder_bg.wasm`. |
+| `new StreamingJpegEncoder(width, height, colorType, options?)`  | Width and height 1 to 65535. `options` is described below. The older form `(width, height, colorType, quality, samplingFactor?)` still works.                                                                                                                                                                                                                                                 |
+| `encoder.encode_strip(rows)`                                    | Encode complete rows (`Uint8Array` or `Uint8ClampedArray`), returns the new JPEG bytes (possibly empty). Throws if the data isn't whole rows or there are more rows than the image has left.                                                                                                                                                                                                  |
+| `encoder.take_output()`                                         | Return bytes produced so far without encoding anything.                                                                                                                                                                                                                                                                                                                                       |
+| `encoder.rows_remaining`                                        | Rows still to be passed in.                                                                                                                                                                                                                                                                                                                                                                   |
+| `encoder.finish()`                                              | Return the final bytes and free the encoder. Throws, and leaves the encoder usable, if rows are missing.                                                                                                                                                                                                                                                                                      |
+| `encoder.free()`                                                | Free the encoder without finishing. Safe to call more than once.                                                                                                                                                                                                                                                                                                                              |
+| `encodeJpeg(pixels, width, height, colorType = Rgba, options?)` | Encode a whole image in one call. Also accepts `quality, samplingFactor?` in place of `options`.                                                                                                                                                                                                                                                                                              |
+| `WasmColorType`                                                 | `Luma` (1 byte per pixel), `Rgb`, `Bgr`, `Ycbcr` (3), `Rgba`, `Bgra` (4, alpha ignored), `Cmyk`, `CmykAsYcck`, `Ycck` (4).                                                                                                                                                                                                                                                                    |
+| `WasmSamplingFactor`                                            | `F_2_2` (4:2:0), `F_2_1` (4:2:2), `F_1_2` (4:4:0), `F_1_1` (4:4:4). Default: `F_2_2` below quality 90, `F_1_1` at 90 and above.                                                                                                                                                                                                                                                               |
+| `WasmQuantizationTable`                                         | `Default`, `Flat`, `MsSsim`, `PsnrHvs`, `ImageMagick`, `KleinSilversteinCarney`, `DentalXRays`, `VisualDetectionModel`, `ImprovedDetectionModel`.                                                                                                                                                                                                                                             |
+| `WasmDensityUnit`                                               | `AspectRatio`, `Inch`, `Centimeter`.                                                                                                                                                                                                                                                                                                                                                          |
 
 ### Options
 
-| Option | Default | |
-|---|---|---|
-| `quality` | `85` | 1 to 100. |
-| `samplingFactor` | `F_2_2` below quality 90, `F_1_1` from 90 | Chroma subsampling (`WasmSamplingFactor`). |
-| `chromaSubsampling` | `'nearest'` | `'average'` box-averages each block of colour samples like libjpeg instead of taking one pixel. Cleaner colour edges (about +0.5 to 1 dB RGB PSNR on the test pattern) for about 15% more encoding time. Only matters when chroma is subsampled. |
-| `dpi` | none | Pixels per inch for the JFIF header: a number, or `{ x, y }`. |
-| `density` | none | `{ x, y, unit }` with a `WasmDensityUnit`, for centimetres or an aspect ratio. |
-| `quantizationTable` | `Default` | A `WasmQuantizationTable` preset for both luma and chroma. |
-| `restartInterval` | none | MCUs between restart markers, so a damaged file can be partly decoded. |
-| `exif` | none | Raw EXIF (TIFF) bytes, without the `Exif\0\0` prefix, up to 65,528 bytes. |
-| `iccProfile` | none | ICC profile bytes; large profiles are split over several APP2 segments. |
+| Option              | Default                                   |                                                                                                                                                                                                                                                  |
+| ------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `quality`           | `85`                                      | 1 to 100.                                                                                                                                                                                                                                        |
+| `samplingFactor`    | `F_2_2` below quality 90, `F_1_1` from 90 | Chroma subsampling (`WasmSamplingFactor`).                                                                                                                                                                                                       |
+| `chromaSubsampling` | `'nearest'`                               | `'average'` box-averages each block of colour samples like libjpeg instead of taking one pixel. Cleaner colour edges (about +0.5 to 1 dB RGB PSNR on the test pattern) for about 15% more encoding time. Only matters when chroma is subsampled. |
+| `dpi`               | none                                      | Pixels per inch for the JFIF header: a number, or `{ x, y }`.                                                                                                                                                                                    |
+| `density`           | none                                      | `{ x, y, unit }` with a `WasmDensityUnit`, for centimetres or an aspect ratio.                                                                                                                                                                   |
+| `quantizationTable` | `Default`                                 | A `WasmQuantizationTable` preset for both luma and chroma.                                                                                                                                                                                       |
+| `restartInterval`   | none                                      | MCUs between restart markers, so a damaged file can be partly decoded.                                                                                                                                                                           |
+| `exif`              | none                                      | Raw EXIF (TIFF) bytes, without the `Exif\0\0` prefix, up to 65,528 bytes.                                                                                                                                                                        |
+| `iccProfile`        | none                                      | ICC profile bytes; large profiles are split over several APP2 segments.                                                                                                                                                                          |
 
 ## Rust usage: `StripEncoder`
 
@@ -165,7 +165,7 @@ so far between strips (this is what the WebAssembly bindings do).
 
 Requirements: Rust (1.89 or newer) with the `wasm32-unknown-unknown` target,
 `wasm-bindgen-cli` at the same version as the `wasm-bindgen` crate in `Cargo.lock`,
-and Node 22 or newer (CI tests 22, 24 and 26). `wasm-opt` comes from the `binaryen` dev dependency.
+and Node 22.22+, 24.15+ or 26+ (CI tests 22, 24 and 26). `wasm-opt` comes from the `binaryen` dev dependency.
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -177,25 +177,25 @@ npm run build          # cargo build (wasm-release profile) + bindings into pkg/
 
 ### Testing
 
-| Command | What it checks |
-|---|---|
-| `cargo test` | Rust tests, including `StripEncoder` producing exactly the same bytes as `Encoder::encode` for every colour type, sampling factor, restart interval, chroma method and strip height. |
-| `npm test` | The npm package in Node: ESM and CommonJS builds, every option (checked in the written JPEG segments), error handling, output that doesn't depend on strip height, decoding back with `jpeg-js`, and the TypeScript types. Also the visual quality tests below. |
-| `npm test` (quality) | [`test/quality.test.js`](test/quality.test.js) decodes the output and measures PSNR against the source: minimum PSNR per quality, quality/size/PSNR increasing together, matching the independent `jpeg-js` encoder at 4:4:4 (within 0.3 dB and 10% size), averaged chroma beating nearest-pixel, and every quantization preset. |
-| `npm test` (golden) | SHA-256 hashes of the output for the cases in [`test/cases.js`](test/cases.js) are stored in [`test/golden.json`](test/golden.json). Any change to the encoded bytes (an upstream merge, a refactor) fails the test. If the change is intended, look at `npm run report` and accept it with `npm run test:golden:update`. |
-| `npm run report` | Writes `report/index.html`: each golden case as a JPEG next to an amplified difference image, with size and PSNR, for checking by eye. CI uploads it as the `visual-report` artifact. |
-| `npm run test:browser` | Encodes in real Chromium (Playwright) and decodes with the browser's own decoder. Run `npx playwright install chromium` once. |
-| `npm run bench` | Throughput in megapixels per second for 1 MP and 12 MP images, several settings and 1-row strips, with `jpeg-js` as a baseline. `--quick` for a short run and `--json file` to save results. CI shows a quick run in the job summary; compare numbers from the same machine only. |
+| Command                | What it checks                                                                                                                                                                                                                                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo test`           | Rust tests, including `StripEncoder` producing exactly the same bytes as `Encoder::encode` for every colour type, sampling factor, restart interval, chroma method and strip height.                                                                                                                                             |
+| `npm test`             | The npm package in Node: ESM and CommonJS builds, every option (checked in the written JPEG segments), error handling, output that doesn't depend on strip height, decoding back with `jpeg-js`, and the TypeScript types. Also the visual quality tests below.                                                                  |
+| `npm test` (quality)   | [`test/quality.test.js`](test/quality.test.js) decodes the output and measures PSNR against the source: minimum PSNR per quality, quality/size/PSNR increasing together, matching the independent `jpeg-js` encoder at 4:4:4 (within 0.3 dB and 10% size), averaged chroma beating nearest-pixel, and every quantization preset. |
+| `npm test` (golden)    | SHA-256 hashes of the output for the cases in [`test/cases.js`](test/cases.js) are stored in [`test/golden.json`](test/golden.json). Any change to the encoded bytes (an upstream merge, a refactor) fails the test. If the change is intended, look at `npm run report` and accept it with `npm run test:golden:update`.        |
+| `npm run report`       | Writes `report/index.html`: each golden case as a JPEG next to an amplified difference image, with size and PSNR, for checking by eye. CI uploads it as the `visual-report` artifact.                                                                                                                                            |
+| `npm run test:browser` | Encodes in real Chromium (Playwright) and decodes with the browser's own decoder. Run `npx playwright install chromium` once.                                                                                                                                                                                                    |
+| `npm run bench`        | Throughput in megapixels per second for 1 MP and 12 MP images, several settings and 1-row strips, with `jpeg-js` as a baseline. `--quick` for a short run and `--json file` to save results. CI shows a quick run in the job summary; compare numbers from the same machine only.                                                |
 
 Benchmark on a typical x64 machine (Node 22):
 
-| 1024×768 RGBA | Mpx/s |
-|---|---|
-| quality 85, 4:2:0 | 55 |
-| quality 85, 4:2:0, averaged chroma | 46 |
-| quality 95, 4:4:4 | 36 |
-| quality 85, 4:2:0, 1-row strips | 53 |
-| `jpeg-js` quality 85 | 8 to 10 |
+| 1024×768 RGBA                      | Mpx/s   |
+| ---------------------------------- | ------- |
+| quality 85, 4:2:0                  | 55      |
+| quality 85, 4:2:0, averaged chroma | 46      |
+| quality 95, 4:4:4                  | 36      |
+| quality 85, 4:2:0, 1-row strips    | 53      |
+| `jpeg-js` quality 85               | 8 to 10 |
 
 WebAssembly SIMD was tried and isn't used: `simd128` alone was within 3% (noise),
 and adding upstream's `use_wide` portable-SIMD DCT made it about 35% slower in wasm.
@@ -204,13 +204,22 @@ and adding upstream's `use_wide` portable-SIMD DCT made it about 35% slower in w
 push and pull request, and deploys the demo in [`docs/`](docs) to GitHub Pages
 from `main`.
 
+### Linting and formatting
+
+[Biome](https://biomejs.dev) lints and formats the JavaScript, TypeScript, JSON and
+workflow files (`npm run lint`, `npm run format`). Rust code uses `cargo fmt`.
+
 ### Releasing to npm
 
-1. Bump `version` in `package.json` and merge to `main`.
-2. Publish a GitHub release tagged `v<version>` (for example `v0.1.0`).
-3. The [`npm-publish`](.github/workflows/npm-publish.yml) workflow builds, tests and
-   runs `npm publish --provenance` using npm trusted publishing (no token stored
-   in GitHub).
+Releases are automatic, the same way as leaflet-node:
+
+1. Merge to `main`. When CI passes, [`release.yml`](.github/workflows/release.yml)
+   bumps the version from the commit messages ("major"/"breaking" for a major,
+   "feat"/"feature"/"minor" for a minor, otherwise a patch), tags it and creates
+   a GitHub release. This needs a `RELEASE_TOKEN` repository secret.
+2. The release triggers [`npm-publish.yml`](.github/workflows/npm-publish.yml), which
+   builds, tests and runs `npm publish --provenance` using npm trusted publishing
+   (no npm token stored in GitHub).
 
 ### Syncing with upstream
 
@@ -242,6 +251,7 @@ The rest of this README is upstream's. The Rust encoder features:
 - No `unsafe` by default (Enabling the `simd` feature adds unsafe code)
 
 ### Example
+
 ```rust
 use jpeg_encoder::{Encoder, ColorType};
 
@@ -261,6 +271,7 @@ encoder.encode(&data, 2, 2, ColorType::Rgb)?;
 ```
 
 ### Crate features
+
 - `std` (default): Enables functionality dependent on the std lib
 - `simd`: Enables SIMD optimizations (implies `std` and only AVX2 as for now)
 
@@ -272,8 +283,8 @@ This crate needs at least 1.89 or higher.
 
 This project is licensed under either of
 
-* Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or https://www.apache.org/licenses/LICENSE-2.0)
-* MIT license ([LICENSE-MIT](LICENSE-MIT) or https://opensource.org/licenses/MIT)
+- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or https://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or https://opensource.org/licenses/MIT)
 
 at your option. Parts of the code are derived from the Independent JPEG Group's
 software and are also covered by the [IJG license](LICENSE-IJG), hence the SPDX

@@ -75,20 +75,32 @@ for (const [width, height] of sizes) {
   if (mpx <= 4) {
     rows.push({
       name: 'jpeg-js q85 (baseline)',
-      ...time(() => jpeg.encode({ data: pixels, width, height }, 85).data.length, Math.max(2, runs / 3)),
+      ...time(
+        () => jpeg.encode({ data: pixels, width, height }, 85).data.length,
+        Math.max(2, runs / 3)
+      ),
     });
   }
 
   for (const r of rows) {
-    const entry = { image: `${width}x${height}`, case: r.name, ms: r.ms, mpxPerS: mpx / (r.ms / 1000), bytes: r.result };
+    const entry = {
+      image: `${width}x${height}`,
+      case: r.name,
+      ms: r.ms,
+      mpxPerS: mpx / (r.ms / 1000),
+      bytes: r.result,
+    };
     results.push(entry);
     console.log(
-      `${entry.image.padEnd(11)} ${entry.case.padEnd(26)} ${entry.ms.toFixed(1).padStart(10)} ${entry.mpxPerS.toFixed(1).padStart(8)} ${String(entry.bytes).padStart(9)}`,
+      `${entry.image.padEnd(11)} ${entry.case.padEnd(26)} ${entry.ms.toFixed(1).padStart(10)} ${entry.mpxPerS.toFixed(1).padStart(8)} ${String(entry.bytes).padStart(9)}`
     );
   }
 }
 
 if (jsonPath) {
-  writeFileSync(jsonPath, JSON.stringify({ node: process.version, arch: process.arch, results }, null, 2) + '\n');
+  writeFileSync(
+    jsonPath,
+    JSON.stringify({ node: process.version, arch: process.arch, results }, null, 2) + '\n'
+  );
   console.log(`\nSaved ${jsonPath}`);
 }

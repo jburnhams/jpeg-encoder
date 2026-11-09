@@ -12,7 +12,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,7 +60,10 @@ if (!sharedEsm.includes(exportLine)) {
 }
 const shared = {
   esm: ['encoder.js', sharedEsm],
-  cjs: ['encoder.cjs', '"use strict";\n' + sharedEsm.replace(exportLine, 'module.exports = { createEncoderClass };')],
+  cjs: [
+    'encoder.cjs',
+    '"use strict";\n' + sharedEsm.replace(exportLine, 'module.exports = { createEncoderClass };'),
+  ],
 };
 
 for (const [dir, target, entry, entryName, type] of [
@@ -65,17 +76,22 @@ for (const [dir, target, entry, entryName, type] of [
   console.log(`Generating ${dir} bindings (--target ${target})...`);
   execFileSync(
     'wasm-bindgen',
-    [wasmPath, '--out-dir', outDir, '--target', target, '--typescript', '--out-name', 'jpeg_encoder'],
-    { stdio: 'inherit' },
+    [
+      wasmPath,
+      '--out-dir',
+      outDir,
+      '--target',
+      target,
+      '--typescript',
+      '--out-name',
+      'jpeg_encoder',
+    ],
+    { stdio: 'inherit' }
   );
 
   const wasmFile = join(outDir, 'jpeg_encoder_bg.wasm');
   if (wasmOpt) {
-    execFileSync(
-      wasmOpt,
-      ['-Oz', wasmFile, '-o', wasmFile],
-      { stdio: 'inherit' },
-    );
+    execFileSync(wasmOpt, ['-Oz', wasmFile, '-o', wasmFile], { stdio: 'inherit' });
   }
   console.log(`  ${dir}/jpeg_encoder_bg.wasm: ${(statSync(wasmFile).size / 1024).toFixed(1)} KiB`);
 

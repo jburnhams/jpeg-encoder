@@ -123,7 +123,7 @@ export class StreamingJpegEncoder {
     height: number,
     colorType: WasmColorType,
     quality?: number,
-    samplingFactor?: WasmSamplingFactor,
+    samplingFactor?: WasmSamplingFactor
   );
 
   /**
@@ -156,7 +156,7 @@ export function encodeJpeg(
   width: number,
   height: number,
   colorType?: WasmColorType,
-  options?: EncoderOptions,
+  options?: EncoderOptions
 ): Uint8Array;
 export function encodeJpeg(
   data: Uint8Array | Uint8ClampedArray,
@@ -164,5 +164,5 @@ export function encodeJpeg(
   height: number,
   colorType?: WasmColorType,
   quality?: number,
-  samplingFactor?: WasmSamplingFactor,
+  samplingFactor?: WasmSamplingFactor
 ): Uint8Array;

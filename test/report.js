@@ -35,7 +35,8 @@ function crc32(bytes) {
 /** Minimal RGBA PNG encoder */
 function png(rgba, w, h) {
   const raw = new Uint8Array((w * 4 + 1) * h);
-  for (let y = 0; y < h; y++) raw.set(rgba.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1);
+  for (let y = 0; y < h; y++)
+    raw.set(rgba.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1);
 
   const chunk = (type, data) => {
     const out = new Uint8Array(12 + data.length);
@@ -82,9 +83,14 @@ for (const { name, options } of goldenCases) {
   const decoded = jpeg.decode(bytes, { useTArray: true }).data;
   const p = psnr(source, decoded);
   writeFileSync(new URL(`${name}.jpg`, outDir), bytes);
-  writeFileSync(new URL(`${name}-diff.png`, outDir), png(diffImage(source, decoded), width, height));
+  writeFileSync(
+    new URL(`${name}-diff.png`, outDir),
+    png(diffImage(source, decoded), width, height)
+  );
   rows.push({ name, options, size: bytes.length, bpp: (bytes.length * 8) / (width * height), p });
-  console.log(`${name.padEnd(18)} ${String(bytes.length).padStart(6)} bytes  Y ${p.y.toFixed(2)} dB  RGB ${p.rgb.toFixed(2)} dB`);
+  console.log(
+    `${name.padEnd(18)} ${String(bytes.length).padStart(6)} bytes  Y ${p.y.toFixed(2)} dB  RGB ${p.rgb.toFixed(2)} dB`
+  );
 }
 
 const html = `<!doctype html>
@@ -111,7 +117,7 @@ const html = `<!doctype html>
     <td><img src="${r.name}-diff.png" alt="${r.name} difference"></td>
     <td>${r.size.toLocaleString()} bytes<br>${r.bpp.toFixed(2)} bits/pixel</td>
     <td>Y ${r.p.y.toFixed(2)} dB<br>RGB ${r.p.rgb.toFixed(2)} dB<br>R ${r.p.r.toFixed(2)} / G ${r.p.g.toFixed(2)} / B ${r.p.b.toFixed(2)}</td>
-  </tr>`,
+  </tr>`
     )
     .join('\n  ')}
 </table>

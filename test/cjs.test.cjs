@@ -22,7 +22,7 @@ test('CommonJS and ESM builds produce identical output', async () => {
   const options = { quality: 60, chromaSubsampling: 'average', dpi: 300, restartInterval: 2 };
   assert.deepEqual(
     encodeJpeg(data, 30, 20, WasmColorType.Rgb, options),
-    esm.encodeJpeg(data, 30, 20, esm.WasmColorType.Rgb, options),
+    esm.encodeJpeg(data, 30, 20, esm.WasmColorType.Rgb, options)
   );
 });
 

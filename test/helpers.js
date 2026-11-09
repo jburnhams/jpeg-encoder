@@ -7,7 +7,8 @@ export function makeImage(width, height, bpp) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * bpp;
       for (let c = 0; c < bpp; c++) {
-        data[i + c] = c === 3 ? 255 : Math.round(((x + y * (c + 1)) / (width + height * (c + 1))) * 255);
+        data[i + c] =
+          c === 3 ? 255 : Math.round(((x + y * (c + 1)) / (width + height * (c + 1))) * 255);
       }
     }
   }
@@ -25,7 +26,17 @@ export function concat(chunks) {
 }
 
 /** Encode `data` passing `stripRows` rows per encode_strip() call */
-export function encodeInStrips(StreamingJpegEncoder, data, width, height, bpp, colorType, quality, stripRows, samplingFactor) {
+export function encodeInStrips(
+  StreamingJpegEncoder,
+  data,
+  width,
+  height,
+  bpp,
+  colorType,
+  quality,
+  stripRows,
+  samplingFactor
+) {
   const encoder = new StreamingJpegEncoder(width, height, colorType, quality, samplingFactor);
   const chunks = [];
   const rowBytes = width * bpp;
@@ -50,8 +61,18 @@ export function makeTestPattern(width, height) {
     return seed / 0x7fffffff;
   };
   const checker = [
-    [115, 82, 68], [194, 150, 130], [98, 122, 157], [87, 108, 67], [133, 128, 177], [103, 189, 170],
-    [214, 126, 44], [80, 91, 166], [193, 90, 99], [94, 60, 108], [157, 188, 64], [224, 163, 46],
+    [115, 82, 68],
+    [194, 150, 130],
+    [98, 122, 157],
+    [87, 108, 67],
+    [133, 128, 177],
+    [103, 189, 170],
+    [214, 126, 44],
+    [80, 91, 166],
+    [193, 90, 99],
+    [94, 60, 108],
+    [157, 188, 64],
+    [224, 163, 46],
   ];
 
   for (let y = 0; y < height; y++) {

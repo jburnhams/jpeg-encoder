@@ -53,7 +53,10 @@ test('encodes RGB, RGBA and grayscale images that decode back to the input', () 
     const decoded = jpeg.decode(bytes, { useTArray: true });
     assert.equal(decoded.width, width);
     assert.equal(decoded.height, height);
-    assert.ok(meanError(data, bpp, decoded) < 3, `colour type ${colorType} decodes close to the input`);
+    assert.ok(
+      meanError(data, bpp, decoded) < 3,
+      `colour type ${colorType} decodes close to the input`
+    );
   }
 });
 
@@ -64,7 +67,16 @@ test('output does not depend on strip height', () => {
   const reference = encodeJpeg(data, width, height, WasmColorType.Rgba, 80);
 
   for (const rows of [1, 3, 8, 15, 16, 17, 36, 37]) {
-    const bytes = encodeInStrips(StreamingJpegEncoder, data, width, height, 4, WasmColorType.Rgba, 80, rows);
+    const bytes = encodeInStrips(
+      StreamingJpegEncoder,
+      data,
+      width,
+      height,
+      4,
+      WasmColorType.Rgba,
+      80,
+      rows
+    );
     assert.deepEqual(bytes, reference, `strips of ${rows} rows`);
   }
 });
@@ -146,17 +158,28 @@ const text = (bytes) => String.fromCharCode(...bytes);
 test('options object and positional arguments give the same output', () => {
   const data = makeImage(30, 20, 3);
   assert.deepEqual(
-    encodeJpeg(data, 30, 20, WasmColorType.Rgb, { quality: 70, samplingFactor: WasmSamplingFactor.F_2_1 }),
-    encodeJpeg(data, 30, 20, WasmColorType.Rgb, 70, WasmSamplingFactor.F_2_1),
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb, {
+      quality: 70,
+      samplingFactor: WasmSamplingFactor.F_2_1,
+    }),
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb, 70, WasmSamplingFactor.F_2_1)
   );
   // Default quality is 85
-  assert.deepEqual(encodeJpeg(data, 30, 20, WasmColorType.Rgb), encodeJpeg(data, 30, 20, WasmColorType.Rgb, 85));
-  assert.deepEqual(encodeJpeg(data, 30, 20, WasmColorType.Rgb, {}), encodeJpeg(data, 30, 20, WasmColorType.Rgb, 85));
+  assert.deepEqual(
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb),
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb, 85)
+  );
+  assert.deepEqual(
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb, {}),
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb, 85)
+  );
 });
 
 test('dpi and density are written to the JFIF header', () => {
   const data = makeImage(8, 8, 3);
-  const jfif = (options) => segments(encodeJpeg(data, 8, 8, WasmColorType.Rgb, options)).find((s) => s.marker === 0xe0).data;
+  const jfif = (options) =>
+    segments(encodeJpeg(data, 8, 8, WasmColorType.Rgb, options)).find((s) => s.marker === 0xe0)
+      .data;
 
   // JFIF\0, version (2 bytes), unit, x density, y density
   assert.deepEqual([...jfif({}).subarray(7, 12)], [0, 0, 1, 0, 1]);
@@ -164,7 +187,7 @@ test('dpi and density are written to the JFIF header', () => {
   assert.deepEqual([...jfif({ dpi: { x: 72, y: 144 } }).subarray(7, 12)], [1, 0, 72, 0, 144]);
   assert.deepEqual(
     [...jfif({ density: { x: 118, y: 118, unit: WasmDensityUnit.Centimeter } }).subarray(7, 12)],
-    [2, 0, 118, 0, 118],
+    [2, 0, 118, 0, 118]
   );
 });
 
@@ -189,7 +212,10 @@ test('EXIF and ICC profile are embedded', () => {
 });
 
 test('restart interval writes DRI and restart markers', () => {
-  const bytes = encodeJpeg(makeImage(64, 64, 3), 64, 64, WasmColorType.Rgb, { quality: 80, restartInterval: 2 });
+  const bytes = encodeJpeg(makeImage(64, 64, 3), 64, 64, WasmColorType.Rgb, {
+    quality: 80,
+    restartInterval: 2,
+  });
   const dri = segments(bytes).find((s) => s.marker === 0xdd);
   assert.deepEqual([...dri.data], [0, 2]);
 
@@ -203,14 +229,22 @@ test('restart interval writes DRI and restart markers', () => {
 
 test('quantization table preset changes the DQT segment', () => {
   const data = makeImage(16, 16, 3);
-  const dqt = (options) => segments(encodeJpeg(data, 16, 16, WasmColorType.Rgb, options)).filter((s) => s.marker === 0xdb);
-  assert.notDeepEqual(dqt({ quality: 75 }), dqt({ quality: 75, quantizationTable: WasmQuantizationTable.ImageMagick }));
-  assert.deepEqual(dqt({ quality: 75 }), dqt({ quality: 75, quantizationTable: WasmQuantizationTable.Default }));
+  const dqt = (options) =>
+    segments(encodeJpeg(data, 16, 16, WasmColorType.Rgb, options)).filter((s) => s.marker === 0xdb);
+  assert.notDeepEqual(
+    dqt({ quality: 75 }),
+    dqt({ quality: 75, quantizationTable: WasmQuantizationTable.ImageMagick })
+  );
+  assert.deepEqual(
+    dqt({ quality: 75 }),
+    dqt({ quality: 75, quantizationTable: WasmQuantizationTable.Default })
+  );
 });
 
 test('chroma averaging changes the output only when chroma is subsampled', () => {
   const data = makeTestPattern(64, 64);
-  const enc = (options) => encodeJpeg(data, 64, 64, WasmColorType.Rgba, { quality: 80, ...options });
+  const enc = (options) =>
+    encodeJpeg(data, 64, 64, WasmColorType.Rgba, { quality: 80, ...options });
   assert.notDeepEqual(enc({ chromaSubsampling: 'average' }), enc({}));
   assert.deepEqual(enc({ chromaSubsampling: 'nearest' }), enc({}));
   const full = { samplingFactor: WasmSamplingFactor.F_1_1 };
@@ -218,11 +252,25 @@ test('chroma averaging changes the output only when chroma is subsampled', () =>
 });
 
 test('rejects invalid options', () => {
-  assert.throws(() => new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, { quality: 0 }), RangeError);
+  assert.throws(
+    () => new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, { quality: 0 }),
+    RangeError
+  );
   assert.throws(() => new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, 101), RangeError);
-  assert.throws(() => new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, { chromaSubsampling: 'bilinear' }), TypeError);
+  assert.throws(
+    () => new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, { chromaSubsampling: 'bilinear' }),
+    TypeError
+  );
   assert.throws(
     () => new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, { exif: new Uint8Array(70_000) }),
-    /App segment exceeds/,
+    /App segment exceeds/
   );
+});
+
+test('free() and Symbol.dispose are safe to call repeatedly', () => {
+  const encoder = new StreamingJpegEncoder(8, 8, WasmColorType.Rgb, 80);
+  encoder[Symbol.dispose]();
+  encoder.free();
+  assert.equal(encoder.rows_remaining, 0);
+  assert.throws(() => encoder.encode_strip(new Uint8Array(24)), /already been finished or freed/);
 });

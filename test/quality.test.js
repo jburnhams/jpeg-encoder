@@ -42,7 +42,10 @@ test('PSNR floors per quality', () => {
   const floors = { 30: 32, 50: 33.5, 75: 36, 90: 41, 95: 46 };
   for (const [quality, floor] of Object.entries(floors)) {
     const { psnr: p } = measure({ quality: Number(quality) });
-    assert.ok(p.y > floor, `quality ${quality}: luma PSNR ${p.y.toFixed(2)} dB is below ${floor} dB`);
+    assert.ok(
+      p.y > floor,
+      `quality ${quality}: luma PSNR ${p.y.toFixed(2)} dB is below ${floor} dB`
+    );
   }
 });
 
@@ -66,10 +69,13 @@ test('matches an independent encoder (jpeg-js) at 4:4:4', () => {
 
     assert.ok(
       Math.abs(ours.psnr.y - theirPsnr.y) < 0.3,
-      `quality ${quality}: luma PSNR ${ours.psnr.y.toFixed(2)} vs jpeg-js ${theirPsnr.y.toFixed(2)}`,
+      `quality ${quality}: luma PSNR ${ours.psnr.y.toFixed(2)} vs jpeg-js ${theirPsnr.y.toFixed(2)}`
     );
     const ratio = ours.size / theirs.length;
-    assert.ok(ratio > 0.9 && ratio < 1.1, `quality ${quality}: size ${ours.size} vs jpeg-js ${theirs.length}`);
+    assert.ok(
+      ratio > 0.9 && ratio < 1.1,
+      `quality ${quality}: size ${ours.size} vs jpeg-js ${theirs.length}`
+    );
   }
 });
 
@@ -80,7 +86,7 @@ test('averaged chroma subsampling beats nearest pixel', () => {
     const average = measure({ ...base, chromaSubsampling: 'average' });
     assert.ok(
       average.psnr.rgb > nearest.psnr.rgb + 0.2,
-      `quality ${quality}: average ${average.psnr.rgb.toFixed(2)} dB vs nearest ${nearest.psnr.rgb.toFixed(2)} dB`,
+      `quality ${quality}: average ${average.psnr.rgb.toFixed(2)} dB vs nearest ${nearest.psnr.rgb.toFixed(2)} dB`
     );
     assert.ok(Math.abs(average.psnr.y - nearest.psnr.y) < 0.2, 'luma is unaffected');
   }
@@ -118,6 +124,6 @@ test('output matches the golden hashes', () => {
   assert.deepEqual(
     actual,
     expected,
-    'Encoded output changed. If that is intended (check `npm run report`), run `npm run test:golden:update`.',
+    'Encoded output changed. If that is intended (check `npm run report`), run `npm run test:golden:update`.'
   );
 });

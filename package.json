@@ -51,23 +51,27 @@
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=22"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
     "build": "npm run build:wasm && npm run build:bindings",
     "build:wasm": "cargo build -p jpeg-encoder-wasm --target wasm32-unknown-unknown --profile wasm-release",
     "build:bindings": "node scripts/build-bindings.js",
     "test": "node --test test/esm.test.js test/cjs.test.cjs test/quality.test.js && npm run test:types",
-    "test:golden:update": "UPDATE_GOLDEN=1 node --test test/quality.test.js",
-    "report": "node test/report.js",
-    "bench": "node bench/bench.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=pkg/esm/index.js --test-coverage-include=pkg/esm/encoder.js --test-coverage-include=pkg/cjs/index.cjs --test-coverage-include=pkg/cjs/encoder.cjs --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=80 test/esm.test.js test/cjs.test.cjs test/quality.test.js",
     "test:types": "tsc -p test/tsconfig.json",
     "test:browser": "node test/browser.test.js",
+    "test:golden:update": "UPDATE_GOLDEN=1 node --test test/quality.test.js",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "report": "node test/report.js",
+    "bench": "node bench/bench.js",
     "example": "node examples/encode.js",
     "prepare:docs": "mkdir -p docs/dist && cp -r pkg/esm/* docs/dist/",
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
     "binaryen": "^132.0.0",
     "jpeg-js": "^0.4.4",
     "playwright": "^1.50.0",

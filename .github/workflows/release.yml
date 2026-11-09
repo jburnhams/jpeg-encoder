@@ -1,0 +1,60 @@
+name: "Bump Version and Release"
+
+# After CI passes on main, bump the version from the commit wording and create
+# a GitHub release, which triggers npm-publish.yml. Same setup as leaflet-node.
+#
+#   "major" / "breaking" -> major, "feat" / "feature" / "minor" -> minor,
+#   anything else -> patch
+#
+# Needs a RELEASE_TOKEN secret (a token that can push to main and create
+# releases), because events from the default GITHUB_TOKEN don't trigger
+# other workflows.
+
+on:
+  workflow_run:
+    workflows: ["WebAssembly package"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  bump-version:
+    name: "Bump Version on main"
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v7"
+        with:
+          ref: main
+
+      - name: "Setup Node.js"
+        uses: "actions/setup-node@v7"
+        with:
+          node-version: "24"
+
+      - name: "Automated Version Bump"
+        id: version-bump
+        uses: "phips28/gh-action-bump-version@v11.0.7"
+        with:
+          tag-prefix: "v"
+          major-wording: "major,Major,breaking,Breaking"
+          minor-wording: "minor,Minor,feat,Feat,feature,Feature"
+          patch-wording: "patch,Patch,fix,Fix,fixes,Fixes"
+          rc-wording: "rc,pre,beta,alpha"
+          commit-message: "ci: bump version to {{version}} [skip ci]"
+          push: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: "Create GitHub Release"
+        if: ${{ steps.version-bump.outputs.newTag }}
+        uses: "softprops/action-gh-release@v2"
+        with:
+          tag_name: ${{ steps.version-bump.outputs.newTag }}
+          name: Release ${{ steps.version-bump.outputs.newTag }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
