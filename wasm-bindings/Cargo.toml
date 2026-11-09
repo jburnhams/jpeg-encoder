@@ -11,5 +11,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 jpeg-encoder = { path = ".." }
-wasm-bindgen = "0.2.105"
-js-sys = "0.3"
+wasm-bindgen = "0.2.130"
+js-sys = "0.3.107"

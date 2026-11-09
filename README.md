@@ -10,7 +10,7 @@ crate by Volker Ströbel.
 
 You feed the image **a strip of rows at a time** and get JPEG bytes back as you go,
 so even very large images are encoded with only a few rows in memory. The npm
-package is under 50 KiB of WebAssembly with no dependencies, and encodes about
+package is about 50 KiB of WebAssembly with no dependencies, and encodes about
 55 megapixels per second in Node (roughly 6× faster than the pure JavaScript `jpeg-js`).
 
 [Live demo](https://jburnhams.github.io/jpeg-encoder/)
@@ -169,7 +169,7 @@ and Node 22 or newer (CI tests 22, 24 and 26). `wasm-opt` comes from the `binary
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.105 --locked
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
 
 npm ci
 npm run build          # cargo build (wasm-release profile) + bindings into pkg/
