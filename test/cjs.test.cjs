@@ -18,6 +18,12 @@ test('CommonJS and ESM builds produce identical output', async () => {
   const viaRequire = encodeJpeg(data, 30, 20, WasmColorType.Rgb, 75);
   const viaImport = esm.encodeJpeg(data, 30, 20, esm.WasmColorType.Rgb, 75);
   assert.deepEqual(viaRequire, viaImport);
+
+  const options = { quality: 60, chromaSubsampling: 'average', dpi: 300, restartInterval: 2 };
+  assert.deepEqual(
+    encodeJpeg(data, 30, 20, WasmColorType.Rgb, options),
+    esm.encodeJpeg(data, 30, 20, esm.WasmColorType.Rgb, options),
+  );
 });
 
 test('streaming API is available', () => {

@@ -41,6 +41,19 @@ jobs:
 
       - run: npm run example
 
+      - name: Visual report
+        run: npm run report
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-report
+          path: report/
+
+      - name: Benchmark
+        run: |
+          npm run bench -- --quick --json bench-results.json | tee bench.txt
+          { echo '### Benchmark (quick, GitHub runner)'; echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check the npm package contents
         run: npm pack --dry-run
 

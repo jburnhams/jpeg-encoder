@@ -1,11 +1,15 @@
 // ESM entry point of the npm package. Copied to pkg/esm/index.js by scripts/build-bindings.js.
 import initWasm, {
+    EncoderSettings,
     StreamingJpegEncoder as RawStreamingJpegEncoder,
     WasmColorType,
+    WasmDensityUnit,
+    WasmQuantizationTable,
     WasmSamplingFactor,
 } from "./jpeg_encoder.js";
+import { createEncoderClass } from "./encoder.js";
 
-export { WasmColorType, WasmSamplingFactor };
+export { WasmColorType, WasmDensityUnit, WasmQuantizationTable, WasmSamplingFactor };
 
 let ready;
 
@@ -46,75 +50,9 @@ export function init(module) {
 
 export default init;
 
-/**
- * Streaming JPEG encoder. Feed rows with `encode_strip()`, collect the bytes
- * each call returns, then call `finish()` for the rest.
- */
-export class StreamingJpegEncoder {
-    #inner;
-
-    constructor(width, height, colorType, quality, samplingFactor) {
-        this.#inner = new RawStreamingJpegEncoder(width, height, colorType, quality, samplingFactor);
-    }
-
-    #active() {
-        if (!this.#inner) {
-            throw new Error("Encoder has already been finished or freed");
-        }
-        return this.#inner;
-    }
-
-    /** Encode one or more complete rows and return the JPEG bytes produced so far. */
-    encode_strip(data) {
-        return this.#active().encode_strip(data);
-    }
-
-    /** Return bytes produced so far (the headers, right after construction) without encoding. */
-    take_output() {
-        return this.#active().take_output();
-    }
-
-    /** Number of rows still to be passed to `encode_strip()`. */
-    get rows_remaining() {
-        return this.#inner ? this.#inner.rows_remaining : 0;
-    }
-
-    /**
-     * Write the end of the image, free the WebAssembly memory and return the
-     * remaining bytes. Throws, and keeps the encoder usable, if rows are missing.
-     */
-    finish() {
-        const bytes = this.#active().finish();
-        this.free();
-        return bytes;
-    }
-
-    /** Free the WebAssembly memory without finishing. Safe to call more than once. */
-    free() {
-        if (this.#inner) {
-            this.#inner.free();
-            this.#inner = undefined;
-        }
-    }
-
-    [Symbol.dispose]() {
-        this.free();
-    }
-}
-
-/**
- * Encode a whole image in one call. `init()` must have been awaited.
- */
-export function encodeJpeg(data, width, height, colorType = WasmColorType.Rgba, quality = 85, samplingFactor) {
-    const encoder = new StreamingJpegEncoder(width, height, colorType, quality, samplingFactor);
-    try {
-        const body = encoder.encode_strip(data);
-        const tail = encoder.finish();
-        const out = new Uint8Array(body.length + tail.length);
-        out.set(body, 0);
-        out.set(tail, body.length);
-        return out;
-    } finally {
-        encoder.free();
-    }
-}
+export const { StreamingJpegEncoder, encodeJpeg } = createEncoderClass(
+    RawStreamingJpegEncoder,
+    EncoderSettings,
+    WasmColorType,
+    WasmDensityUnit,
+);

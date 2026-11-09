@@ -33,6 +33,58 @@ export enum WasmSamplingFactor {
   F_2_2 = 3,
 }
 
+/** Unit of `EncoderOptions.density` */
+export enum WasmDensityUnit {
+  /** No unit; the values only give the pixel aspect ratio */
+  AspectRatio = 0,
+  /** Pixels per inch */
+  Inch = 1,
+  /** Pixels per centimetre */
+  Centimeter = 2,
+}
+
+/** Quantization table presets (from mozjpeg), applied to luma and chroma */
+export enum WasmQuantizationTable {
+  /** Annex K tables of the JPEG standard (the default) */
+  Default = 0,
+  Flat = 1,
+  /** Tuned for MS-SSIM */
+  MsSsim = 2,
+  /** Tuned for PSNR-HVS */
+  PsnrHvs = 3,
+  /** ImageMagick table by N. Robidoux */
+  ImageMagick = 4,
+  KleinSilversteinCarney = 5,
+  DentalXRays = 6,
+  VisualDetectionModel = 7,
+  ImprovedDetectionModel = 8,
+}
+
+export interface EncoderOptions {
+  /** JPEG quality, 1 to 100. Default 85 */
+  quality?: number;
+  /** Chroma subsampling; by default `F_2_2` below quality 90, `F_1_1` from 90 */
+  samplingFactor?: WasmSamplingFactor;
+  /**
+   * How subsampled chroma is computed: `"nearest"` (default) takes the top-left
+   * pixel of each block, `"average"` box-averages it like libjpeg, giving
+   * cleaner colour edges. Has no effect with `F_1_1`.
+   */
+  chromaSubsampling?: 'nearest' | 'average';
+  /** Pixels per inch written to the JFIF header, e.g. 300 or `{ x: 300, y: 150 }` */
+  dpi?: number | { x: number; y: number };
+  /** Pixel density with an explicit unit (ignored when `dpi` is set). Default unit: inch */
+  density?: { x: number; y: number; unit?: WasmDensityUnit };
+  /** Quantization table preset. Default `WasmQuantizationTable.Default` */
+  quantizationTable?: WasmQuantizationTable;
+  /** Number of MCUs between restart markers; 0 or unset for none */
+  restartInterval?: number;
+  /** Raw EXIF data (a TIFF structure, without the `Exif\0\0` prefix), up to 65,528 bytes */
+  exif?: Uint8Array;
+  /** ICC colour profile to embed */
+  iccProfile?: Uint8Array;
+}
+
 export type InitInput =
   | string
   | URL
@@ -59,6 +111,10 @@ export class StreamingJpegEncoder {
    * @param width Image width in pixels (1 to 65535)
    * @param height Image height in pixels (1 to 65535)
    * @param colorType Pixel layout of the input rows
+   * @param options Quality and other settings
+   */
+  constructor(width: number, height: number, colorType: WasmColorType, options?: EncoderOptions);
+  /**
    * @param quality JPEG quality, 1 to 100
    * @param samplingFactor Chroma subsampling; by default `F_2_2` below quality 90, `F_1_1` from 90
    */
@@ -66,7 +122,7 @@ export class StreamingJpegEncoder {
     width: number,
     height: number,
     colorType: WasmColorType,
-    quality: number,
+    quality?: number,
     samplingFactor?: WasmSamplingFactor,
   );
 
@@ -95,6 +151,13 @@ export class StreamingJpegEncoder {
 }
 
 /** Encode a whole image in one call. In the ESM build `init()` must have been awaited. */
+export function encodeJpeg(
+  data: Uint8Array | Uint8ClampedArray,
+  width: number,
+  height: number,
+  colorType?: WasmColorType,
+  options?: EncoderOptions,
+): Uint8Array;
 export function encodeJpeg(
   data: Uint8Array | Uint8ClampedArray,
   width: number,
