@@ -211,15 +211,21 @@ workflow files (`npm run lint`, `npm run format`). Rust code uses `cargo fmt`.
 
 ### Releasing to npm
 
-Releases are automatic, the same way as leaflet-node:
+Releases are automatic and work the same way as leaflet-node's (`main` only
+takes pull requests, so the version bump goes through one too):
 
 1. Merge to `main`. When CI passes, [`release.yml`](.github/workflows/release.yml)
-   bumps the version from the commit messages ("major"/"breaking" for a major,
-   "feat"/"feature"/"minor" for a minor, otherwise a patch), tags it and creates
-   a GitHub release. This needs a `RELEASE_TOKEN` repository secret.
+   works out the next version from the commit messages since the last release
+   ("major"/"breaking" for a major, "feat"/"feature"/"minor" for a minor,
+   otherwise a patch), opens and merges a `Release vX.Y.Z` pull request that
+   updates `package.json`, then tags that commit and creates a GitHub release.
+   The first release uses the `package.json` version as it is.
 2. The release triggers [`npm-publish.yml`](.github/workflows/npm-publish.yml), which
    builds, tests and runs `npm publish --provenance` using npm trusted publishing
-   (no npm token stored in GitHub).
+   (no npm token stored in GitHub). It skips versions that are already on npm.
+
+This needs a `RELEASE_TOKEN` repository secret with contents and pull-requests
+write access.
 
 ### Syncing with upstream
 
