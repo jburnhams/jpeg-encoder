@@ -11,6 +11,7 @@ A JPEG encoder written in Rust featuring:
 - Optimized huffman tables
 - 1, 3 and 4 component colorspaces
 - Restart interval
+- Streaming encoding of images strip by strip (`StripEncoder`)
 - Custom quantization tables
 - AVX2 based optimizations (Optional)
 - Support for no_std + alloc

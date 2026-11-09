@@ -9,6 +9,9 @@ use crate::{EncodingError, PixelDensity};
 use alloc::vec;
 use alloc::vec::Vec;
 
+mod strip;
+pub use strip::StripEncoder;
+
 #[cfg(feature = "std")]
 use std::io::BufWriter;
 
@@ -564,6 +567,26 @@ impl<W: JfifWrite> Encoder<W> {
         let jpeg_color_type = image.get_jpeg_color_type();
         self.init_components(jpeg_color_type);
 
+        self.write_file_header(jpeg_color_type)?;
+
+        if let Some(scans) = self.progressive_scans {
+            self.encode_image_progressive::<_, OP>(image, scans, &q_tables)?;
+        } else if self.optimize_huffman_table || !self.sampling_factor.supports_interleaved() {
+            self.encode_image_sequential::<_, OP>(image, &q_tables)?;
+        } else {
+            self.encode_image_interleaved::<_, OP>(image, &q_tables)?;
+        }
+
+        self.writer.write_marker(Marker::EOI)?;
+
+        Ok(())
+    }
+
+    /// Write the SOI marker, the JFIF header and all APP segments
+    pub(crate) fn write_file_header(
+        &mut self,
+        jpeg_color_type: JpegColorType,
+    ) -> Result<(), EncodingError> {
         self.writer.write_marker(Marker::SOI)?;
 
         self.writer.write_header(&self.density)?;
@@ -584,20 +607,10 @@ impl<W: JfifWrite> Encoder<W> {
             self.writer.write_segment(Marker::APP(*nr), data)?;
         }
 
-        if let Some(scans) = self.progressive_scans {
-            self.encode_image_progressive::<_, OP>(image, scans, &q_tables)?;
-        } else if self.optimize_huffman_table || !self.sampling_factor.supports_interleaved() {
-            self.encode_image_sequential::<_, OP>(image, &q_tables)?;
-        } else {
-            self.encode_image_interleaved::<_, OP>(image, &q_tables)?;
-        }
-
-        self.writer.write_marker(Marker::EOI)?;
-
         Ok(())
     }
 
-    fn init_components(&mut self, color: JpegColorType) {
+    pub(crate) fn init_components(&mut self, color: JpegColorType) {
         let (horizontal_sampling_factor, vertical_sampling_factor) =
             self.sampling_factor.get_sampling_factors();
 
@@ -661,7 +674,7 @@ impl<W: JfifWrite> Encoder<W> {
         (usize::from(max_h_sampling), usize::from(max_v_sampling))
     }
 
-    fn write_frame_header<I: ImageBuffer>(
+    pub(crate) fn write_frame_header<I: ImageBuffer>(
         &mut self,
         image: &I,
         q_tables: &[QuantizationTable; 2],
@@ -736,115 +749,145 @@ impl<W: JfifWrite> Encoder<W> {
         self.writer
             .write_scan_header(&self.components.iter().collect::<Vec<_>>(), None)?;
 
+        let mut state = self.init_interleaved_state(image.width());
+        let num_rows = usize::from(image.height()).div_ceil(8 * state.max_v_sampling);
+
+        for block_y in 0..num_rows {
+            self.encode_interleaved_mcu_row::<_, OP>(&image, block_y, q_tables, &mut state)?;
+        }
+
+        self.writer.finalize_bit_buffer()?;
+
+        Ok(())
+    }
+
+    pub(crate) fn init_interleaved_state(&mut self, width: u16) -> InterleavedState {
         let (max_h_sampling, max_v_sampling) = self.get_max_sampling_size();
 
-        let width = image.width();
-        let height = image.height();
-
         let num_cols = usize::from(width).div_ceil(8 * max_h_sampling);
-        let num_rows = usize::from(height).div_ceil(8 * max_v_sampling);
 
         let buffer_width = num_cols * 8 * max_h_sampling;
         let buffer_size = buffer_width * 8 * max_v_sampling;
 
-        let mut row: [Vec<_>; 4] = self.init_rows(buffer_size);
-
-        let mut prev_dc = [0i16; 4];
-
         let restart_interval = self.restart_interval.unwrap_or(0);
-        let mut restarts = 0;
-        let mut restarts_to_go = restart_interval;
 
-        for block_y in 0..num_rows {
-            for r in &mut row {
-                r.clear();
-            }
+        InterleavedState {
+            row: self.init_rows(buffer_size),
+            prev_dc: [0i16; 4],
+            restarts: 0,
+            restarts_to_go: restart_interval,
+            num_cols,
+            buffer_width,
+            max_h_sampling,
+            max_v_sampling,
+        }
+    }
 
-            for y in 0..(8 * max_v_sampling) {
-                let y = y + block_y * 8 * max_v_sampling;
-                let y = (y.min(height as usize - 1)) as u16;
+    /// Encode one row of MCUs (8 * max vertical sampling factor image rows)
+    ///
+    /// Image rows past the end of `image` are filled by repeating its last row.
+    pub(crate) fn encode_interleaved_mcu_row<I: ImageBuffer, OP: Operations>(
+        &mut self,
+        image: &I,
+        block_y: usize,
+        q_tables: &[QuantizationTable; 2],
+        state: &mut InterleavedState,
+    ) -> Result<(), EncodingError> {
+        let InterleavedState {
+            row,
+            prev_dc,
+            restarts,
+            restarts_to_go,
+            num_cols,
+            buffer_width,
+            max_h_sampling,
+            max_v_sampling,
+        } = state;
+        let (num_cols, buffer_width) = (*num_cols, *buffer_width);
+        let (max_h_sampling, max_v_sampling) = (*max_h_sampling, *max_v_sampling);
 
-                image.fill_buffers(y, &mut row);
+        let width = image.width();
+        let height = image.height();
+        let restart_interval = self.restart_interval.unwrap_or(0);
 
-                for _ in usize::from(width)..buffer_width {
-                    for channel in &mut row {
-                        if !channel.is_empty() {
-                            channel.push(channel[channel.len() - 1]);
-                        }
+        for r in row.iter_mut() {
+            r.clear();
+        }
+
+        for y in 0..(8 * max_v_sampling) {
+            let y = y + block_y * 8 * max_v_sampling;
+            let y = (y.min(height as usize - 1)) as u16;
+
+            image.fill_buffers(y, row);
+
+            for _ in usize::from(width)..buffer_width {
+                for channel in row.iter_mut() {
+                    if !channel.is_empty() {
+                        channel.push(channel[channel.len() - 1]);
                     }
-                }
-            }
-
-            for block_x in 0..num_cols {
-                if restart_interval > 0 && restarts_to_go == 0 {
-                    self.writer.finalize_bit_buffer()?;
-                    self.writer
-                        .write_marker(Marker::RST((restarts % 8) as u8))?;
-
-                    prev_dc[0] = 0;
-                    prev_dc[1] = 0;
-                    prev_dc[2] = 0;
-                    prev_dc[3] = 0;
-                }
-
-                for (i, component) in self.components.iter().enumerate() {
-                    let h_stride = max_h_sampling / component.horizontal_sampling_factor as usize;
-                    let v_stride = max_v_sampling / component.vertical_sampling_factor as usize;
-                    let average = self.chroma_subsampling_method
-                        == ChromaSubsamplingMethod::Average
-                        && (h_stride > 1 || v_stride > 1);
-
-                    for v_offset in 0..component.vertical_sampling_factor as usize {
-                        for h_offset in 0..component.horizontal_sampling_factor as usize {
-                            let bx = block_x * 8 * max_h_sampling + (h_offset * 8);
-                            let by = v_offset * 8;
-                            let mut block = if average {
-                                get_block_averaged(
-                                    &row[i],
-                                    bx,
-                                    by,
-                                    h_stride,
-                                    v_stride,
-                                    buffer_width,
-                                )
-                            } else {
-                                get_block(&row[i], bx, by, h_stride, v_stride, buffer_width)
-                            };
-
-                            OP::fdct(&mut block);
-
-                            let mut q_block = AlignedBlock::default();
-
-                            OP::quantize_block(
-                                &block,
-                                &mut q_block,
-                                &q_tables[component.quantization_table as usize],
-                            );
-
-                            self.writer.write_block(
-                                &q_block,
-                                prev_dc[i],
-                                &self.huffman_tables[component.dc_huffman_table as usize].0,
-                                &self.huffman_tables[component.ac_huffman_table as usize].1,
-                            )?;
-
-                            prev_dc[i] = q_block.data[0];
-                        }
-                    }
-                }
-
-                if restart_interval > 0 {
-                    if restarts_to_go == 0 {
-                        restarts_to_go = restart_interval;
-                        restarts += 1;
-                        restarts &= 7;
-                    }
-                    restarts_to_go -= 1;
                 }
             }
         }
 
-        self.writer.finalize_bit_buffer()?;
+        for block_x in 0..num_cols {
+            if restart_interval > 0 && *restarts_to_go == 0 {
+                self.writer.finalize_bit_buffer()?;
+                self.writer
+                    .write_marker(Marker::RST((*restarts % 8) as u8))?;
+
+                prev_dc[0] = 0;
+                prev_dc[1] = 0;
+                prev_dc[2] = 0;
+                prev_dc[3] = 0;
+            }
+
+            for (i, component) in self.components.iter().enumerate() {
+                let h_stride = max_h_sampling / component.horizontal_sampling_factor as usize;
+                let v_stride = max_v_sampling / component.vertical_sampling_factor as usize;
+                let average = self.chroma_subsampling_method == ChromaSubsamplingMethod::Average
+                    && (h_stride > 1 || v_stride > 1);
+
+                for v_offset in 0..component.vertical_sampling_factor as usize {
+                    for h_offset in 0..component.horizontal_sampling_factor as usize {
+                        let bx = block_x * 8 * max_h_sampling + (h_offset * 8);
+                        let by = v_offset * 8;
+                        let mut block = if average {
+                            get_block_averaged(&row[i], bx, by, h_stride, v_stride, buffer_width)
+                        } else {
+                            get_block(&row[i], bx, by, h_stride, v_stride, buffer_width)
+                        };
+
+                        OP::fdct(&mut block);
+
+                        let mut q_block = AlignedBlock::default();
+
+                        OP::quantize_block(
+                            &block,
+                            &mut q_block,
+                            &q_tables[component.quantization_table as usize],
+                        );
+
+                        self.writer.write_block(
+                            &q_block,
+                            prev_dc[i],
+                            &self.huffman_tables[component.dc_huffman_table as usize].0,
+                            &self.huffman_tables[component.ac_huffman_table as usize].1,
+                        )?;
+
+                        prev_dc[i] = q_block.data[0];
+                    }
+                }
+            }
+
+            if restart_interval > 0 {
+                if *restarts_to_go == 0 {
+                    *restarts_to_go = restart_interval;
+                    *restarts += 1;
+                    *restarts &= 7;
+                }
+                *restarts_to_go -= 1;
+            }
+        }
 
         Ok(())
     }
@@ -1343,6 +1386,19 @@ fn get_num_bits(mut value: i16) -> u8 {
     }
 
     num_bits
+}
+
+/// Working state of the interleaved (single scan, baseline) encoder
+/// that carries over from one MCU row to the next
+pub(crate) struct InterleavedState {
+    row: [Vec<u8>; 4],
+    prev_dc: [i16; 4],
+    restarts: u16,
+    restarts_to_go: u16,
+    num_cols: usize,
+    buffer_width: usize,
+    max_h_sampling: usize,
+    pub(crate) max_v_sampling: usize,
 }
 
 pub(crate) trait Operations {

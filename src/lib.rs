@@ -42,7 +42,9 @@ mod marker;
 mod quantization;
 mod writer;
 
-pub use encoder::{ChromaSubsamplingMethod, ColorType, Encoder, JpegColorType, SamplingFactor};
+pub use encoder::{
+    ChromaSubsamplingMethod, ColorType, Encoder, JpegColorType, SamplingFactor, StripEncoder,
+};
 pub use error::EncodingError;
 pub use image_buffer::{ImageBuffer, cmyk_to_ycck, rgb_to_ycbcr};
 pub use quantization::QuantizationTableType;
