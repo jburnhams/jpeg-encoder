@@ -1,6 +1,6 @@
 {
   "name": "jpeg-encoder-wasm",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Streaming JPEG encoder for Node and browsers: WebAssembly build of the Rust jpeg-encoder crate that encodes images strip by strip",
   "keywords": [
     "jpeg",
